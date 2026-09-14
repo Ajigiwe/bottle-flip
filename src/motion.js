@@ -9,8 +9,8 @@ export class MotionController {
     this.isSensorEnabled = false;
     this.hasSensorPermission = false;
 
-    // Previous accelerometer vector for delta-jerk calculations
-    this.prevAccel = { x: 0, y: 0, z: 0 };
+    // Gravity vector isolation for high-pass filtering
+    this.gravityVector = { x: 0, y: 0, z: 0 };
 
     // Sensitivity level 1 to 10 (Default 5)
     this.sensitivityLevel = parseInt(localStorage.getItem('bottle_flip_sensitivity') || '5', 10);
@@ -29,7 +29,6 @@ export class MotionController {
   }
 
   autoInitSensorOnTouch() {
-    // Auto-listen to devicemotion on any user touch/click
     const handler = () => {
       this.enableSensor();
       window.removeEventListener('touchstart', handler);
@@ -46,11 +45,11 @@ export class MotionController {
   }
 
   updateSensitivityParameters() {
-    // Level 1 = Low sensitivity (deltaThreshold = 18.0)
-    // Level 10 = High sensitivity (deltaThreshold = 7.0)
-    // Standard Level 5 = 11.5
+    // Level 1 = Low sensitivity (flickThreshold = 26.0 m/s^2)
+    // Level 10 = High sensitivity (flickThreshold = 14.0 m/s^2)
+    // Standard Level 5 = 20.0 m/s^2 (requires intentional flick)
     const norm = (this.sensitivityLevel - 1) / 9; // 0.0 to 1.0
-    this.flickThreshold = 18.0 - norm * 11.0;
+    this.flickThreshold = 26.0 - norm * 12.0;
 
     // Swipe velocity multiplier scale
     this.swipeScaleVx = 0.30 + norm * 0.25;
@@ -97,39 +96,44 @@ export class MotionController {
   handleDeviceMotion(event) {
     if (this.physics.state !== 'READY') return;
 
-    // Support both acceleration and accelerationIncludingGravity across Android and iOS
-    const accel = event.acceleration || event.accelerationIncludingGravity;
-    if (!accel) return;
+    let ax = 0, ay = 0, az = 0;
 
-    const ax = accel.x || 0;
-    const ay = accel.y || 0;
-    const az = accel.z || 0;
+    if (event.acceleration && event.acceleration.x !== null) {
+      // Pure user acceleration excluding Earth gravity
+      ax = event.acceleration.x || 0;
+      ay = event.acceleration.y || 0;
+      az = event.acceleration.z || 0;
+    } else if (event.accelerationIncludingGravity) {
+      // High-pass filter to isolate user flick force from constant 9.81m/s^2 gravity
+      const rawX = event.accelerationIncludingGravity.x || 0;
+      const rawY = event.accelerationIncludingGravity.y || 0;
+      const rawZ = event.accelerationIncludingGravity.z || 0;
 
-    // Calculate delta acceleration (jerk / flick spike)
-    const dax = ax - this.prevAccel.x;
-    const day = ay - this.prevAccel.y;
-    const daz = az - this.prevAccel.z;
+      const alpha = 0.82;
+      this.gravityVector.x = alpha * this.gravityVector.x + (1 - alpha) * rawX;
+      this.gravityVector.y = alpha * this.gravityVector.y + (1 - alpha) * rawY;
+      this.gravityVector.z = alpha * this.gravityVector.z + (1 - alpha) * rawZ;
 
-    this.prevAccel = { x: ax, y: ay, z: az };
+      ax = rawX - this.gravityVector.x;
+      ay = rawY - this.gravityVector.y;
+      az = rawZ - this.gravityVector.z;
+    } else {
+      return;
+    }
 
-    const deltaMagnitude = Math.sqrt(dax * dax + day * day + daz * daz);
-    const rawMagnitude = Math.sqrt(ax * ax + ay * ay + az * az);
-    const totalIntensity = Math.max(deltaMagnitude, rawMagnitude * 0.6);
-
+    const flickMagnitude = Math.sqrt(ax * ax + ay * ay + az * az);
     const now = Date.now();
 
-    // Trigger flick when delta acceleration magnitude crosses sensitivity threshold
-    if (totalIntensity > this.flickThreshold && now - this.lastFlickTime > 1100) {
+    // Requires intentional firm flick above threshold (prevents slight shake auto-flips)
+    if (flickMagnitude > this.flickThreshold && now - this.lastFlickTime > 1400) {
       this.lastFlickTime = now;
 
-      // Realistic velocity & flip torque coupling
       const norm = (this.sensitivityLevel - 1) / 9;
-      const power = Math.min(22, totalIntensity * (0.65 + norm * 0.3));
+      const power = Math.min(22, flickMagnitude * (0.6 + norm * 0.3));
       
       const upwardVel = -Math.max(13, power * 0.85);
-      const rightVel = Math.min(10, Math.max(-10, dax * 0.7 + 5));
+      const rightVel = Math.min(10, Math.max(-10, ax * 0.7 + 5));
 
-      // Natural 360-degree flip angular velocity
       const flipSpin = -Math.min(0.24, 0.11 + Math.abs(upwardVel) * 0.007);
 
       this.sound.playWhoosh(power / 18);
@@ -203,7 +207,6 @@ export class MotionController {
       const throwVx = Math.min(16, Math.max(-6, avgVx * this.swipeScaleVx + 4.5));
       const throwVy = Math.max(-23, Math.min(-11, avgVy * this.swipeScaleVy));
 
-      // Tune angular spin to complete a smooth, realistic 360 flip arc
       const throwSpeed = Math.abs(throwVy);
       const angularSpin = -(0.10 + throwSpeed * 0.0055);
 
