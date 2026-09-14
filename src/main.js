@@ -27,6 +27,7 @@ class BottleFlipGame {
 
     // Screens & Modals
     this.homeScreen = document.getElementById('home-screen');
+    this.settingsModal = document.getElementById('settings-modal');
     this.howModal = document.getElementById('how-modal');
     this.hintOverlay = document.getElementById('hint-overlay');
     this.sensorModal = document.getElementById('sensor-modal');
@@ -38,8 +39,15 @@ class BottleFlipGame {
     this.startGameBtn = document.getElementById('start-game-btn');
     this.homeHowBtn = document.getElementById('home-how-btn');
     this.homeNavBtn = document.getElementById('home-nav-btn');
+    this.settingsBtn = document.getElementById('settings-btn');
+    this.closeSettingsBtn = document.getElementById('close-settings-btn');
+
     this.howToPlayBtn = document.getElementById('how-to-play-btn');
     this.closeHowBtn = document.getElementById('close-how-btn');
+
+    // Settings Controls
+    this.sensitivitySlider = document.getElementById('sensitivity-slider');
+    this.sensitivityDisplay = document.getElementById('sensitivity-display');
 
     // Game Controls
     this.resetBtn = document.getElementById('reset-btn');
@@ -81,6 +89,32 @@ class BottleFlipGame {
       soundManager.playClick();
       this.howModal.classList.add('hidden');
     });
+
+    // Settings Modal Events
+    this.settingsBtn.addEventListener('click', () => {
+      soundManager.playClick();
+      this.settingsModal.classList.remove('hidden');
+    });
+
+    this.closeSettingsBtn.addEventListener('click', () => {
+      soundManager.playClick();
+      this.settingsModal.classList.add('hidden');
+    });
+
+    // Sensitivity Slider Listener
+    if (this.sensitivitySlider) {
+      const savedLevel = localStorage.getItem('bottle_flip_sensitivity') || '5';
+      this.sensitivitySlider.value = savedLevel;
+      this.updateSensitivityLabel(savedLevel);
+
+      this.sensitivitySlider.addEventListener('input', (e) => {
+        const val = e.target.value;
+        this.updateSensitivityLabel(val);
+        if (this.motionController) {
+          this.motionController.setSensitivityLevel(val);
+        }
+      });
+    }
 
     // Game Control Events
     this.resetBtn.addEventListener('click', () => {
@@ -129,6 +163,21 @@ class BottleFlipGame {
     });
   }
 
+  updateSensitivityLabel(levelVal) {
+    const val = parseInt(levelVal, 10);
+    let desc = 'Standard';
+    if (val <= 2) desc = 'Very Low';
+    else if (val <= 4) desc = 'Low / Firm';
+    else if (val === 5) desc = 'Standard';
+    else if (val <= 7) desc = 'Medium High';
+    else if (val <= 9) desc = 'High';
+    else desc = 'Ultra Sensitive';
+
+    if (this.sensitivityDisplay) {
+      this.sensitivityDisplay.textContent = `Lvl ${val} (${desc})`;
+    }
+  }
+
   initGame() {
     this.physics = new PhysicsWorld(window.innerWidth, window.innerHeight);
 
@@ -137,6 +186,11 @@ class BottleFlipGame {
       soundManager,
       (type) => this.handleThrowTriggered(type)
     );
+
+    // Apply saved sensitivity to motion controller
+    if (this.sensitivitySlider) {
+      this.motionController.setSensitivityLevel(this.sensitivitySlider.value);
+    }
 
     this.renderer = new GameRenderer(this.canvas, this.physics, this.motionController);
 

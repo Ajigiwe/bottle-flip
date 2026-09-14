@@ -9,8 +9,10 @@ export class MotionController {
     this.isSensorEnabled = false;
     this.hasSensorPermission = false;
 
-    // Tuned lower sensitivity parameters for controlled, realistic flicking
-    this.flickThreshold = 18.5; // Higher m/s^2 spike threshold (requires deliberate flick)
+    // Sensitivity level 1 to 10 (Default 5)
+    this.sensitivityLevel = parseInt(localStorage.getItem('bottle_flip_sensitivity') || '5', 10);
+    this.updateSensitivityParameters();
+
     this.lastFlickTime = 0;
 
     // Touch / Pointer drag state
@@ -22,7 +24,25 @@ export class MotionController {
     this.setupTouchListeners();
   }
 
-  // Request motion permission for iOS 13+ inside a user tap gesture
+  setSensitivityLevel(level) {
+    this.sensitivityLevel = Math.max(1, Math.min(10, parseInt(level, 10)));
+    localStorage.setItem('bottle_flip_sensitivity', this.sensitivityLevel.toString());
+    this.updateSensitivityParameters();
+  }
+
+  updateSensitivityParameters() {
+    // Level 1 = Firm/Low sensitivity (flickThreshold = 25.0)
+    // Level 10 = High sensitivity (flickThreshold = 11.0)
+    // Standard Level 5 = 18.0 m/s^2
+    const norm = (this.sensitivityLevel - 1) / 9; // 0.0 to 1.0
+    this.flickThreshold = 25.0 - norm * 14.0;
+
+    // Swipe velocity multiplier scale (0.25 at L1 to 0.55 at L10)
+    this.swipeScaleVx = 0.25 + norm * 0.25;
+    this.swipeScaleVy = 0.40 + norm * 0.30;
+    this.minSwipeDist = 45 - norm * 20; // 45px drag at L1, 25px at L10
+  }
+
   async requestPermission() {
     if (
       typeof DeviceMotionEvent !== 'undefined' &&
@@ -72,15 +92,14 @@ export class MotionController {
     const magnitude = Math.sqrt(x * x + y * y + z * z);
     const now = Date.now();
 
-    // Check for firm, deliberate flick acceleration spike
     if (magnitude > this.flickThreshold && now - this.lastFlickTime > 1200) {
       this.lastFlickTime = now;
 
-      // Dampened force scaling for smooth, controlled throws
-      const forwardForce = Math.min(22, magnitude * 0.7);
+      const norm = (this.sensitivityLevel - 1) / 9;
+      const forwardForce = Math.min(26, magnitude * (0.6 + norm * 0.35));
       const upwardVel = -Math.max(12, forwardForce * 0.75);
-      const rightVel = Math.min(8, Math.max(-8, x * 0.8 + 4));
-      const flipSpin = -Math.min(0.25, 0.08 + magnitude * 0.005);
+      const rightVel = Math.min(10, Math.max(-10, x * (0.6 + norm * 0.4) + 4));
+      const flipSpin = -Math.min(0.3, 0.08 + magnitude * 0.005);
 
       this.sound.playWhoosh(magnitude / 20);
       this.physics.throwBottle(rightVel, upwardVel, flipSpin);
@@ -146,14 +165,12 @@ export class MotionController {
     const dy = this.dragCurrent.y - this.dragStart.y;
     const dt = Math.max(1, Date.now() - this.dragStart.time);
 
-    // Require deliberate upward swipe (> 35px drag distance)
-    if (dy < -35 && dt < 800) {
-      // Calculate smoothed & dampened throw velocities
+    if (dy < -this.minSwipeDist && dt < 800) {
       let avgVx = (dx / dt) * 14;
       let avgVy = (dy / dt) * 14;
 
-      const throwVx = Math.min(14, Math.max(-6, avgVx * 0.35 + 4.5));
-      const throwVy = Math.max(-20, Math.min(-9, avgVy * 0.52));
+      const throwVx = Math.min(16, Math.max(-6, avgVx * this.swipeScaleVx + 4.5));
+      const throwVy = Math.max(-24, Math.min(-9, avgVy * this.swipeScaleVy));
 
       const throwSpeed = Math.hypot(throwVx, throwVy);
       const angularSpin = -(0.09 + throwSpeed * 0.005);
@@ -169,7 +186,6 @@ export class MotionController {
     }
   }
 
-  // Get aiming trajectory vector for canvas renderer
   getAimTrajectory() {
     if (!this.isDragging || this.physics.state !== 'AIMING') return null;
 
@@ -182,8 +198,8 @@ export class MotionController {
     let avgVx = (dx / dt) * 14;
     let avgVy = (dy / dt) * 14;
 
-    const vx = Math.min(14, Math.max(-6, avgVx * 0.35 + 4.5));
-    const vy = Math.max(-20, Math.min(-9, avgVy * 0.52));
+    const vx = Math.min(16, Math.max(-6, avgVx * this.swipeScaleVx + 4.5));
+    const vy = Math.max(-24, Math.min(-9, avgVy * this.swipeScaleVy));
 
     return { vx, vy, startX: this.dragStart.x, startY: this.dragStart.y };
   }
