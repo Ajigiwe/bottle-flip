@@ -6,7 +6,7 @@
   <title>Bottle Flip Physics - Mobile & Web Game</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/src/style.css">
 </head>
 <body>
@@ -15,14 +15,14 @@
 
     <!-- Top Navigation & Score Dashboard -->
     <header class="ui-header">
-      <div class="brand">
+      <button id="home-nav-btn" class="brand-btn" title="Home Menu">
         <svg class="brand-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M9 3h6v3H9z"/>
           <path d="M10 6v3l-2 2v10a1 1 0 001 1h6a1 1 0 001-1V11l-2-2V6"/>
           <path d="M8 15h8"/>
         </svg>
         <span class="title">FLIP PURE</span>
-      </div>
+      </button>
 
       <div class="hud-metrics">
         <div class="metric-item">
@@ -54,8 +54,6 @@
             <path d="M6 9H4.5a2.5 2.5 0 010-5H6"/>
             <path d="M18 9h1.5a2.5 2.5 0 000-5H18"/>
             <path d="M4 22h16"/>
-            <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/>
-            <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/>
             <path d="M18 2H6v7a6 6 0 0012 0V2z"/>
           </svg>
           <div class="metric-content">
@@ -66,6 +64,13 @@
       </div>
 
       <div class="header-actions">
+        <button id="how-to-play-btn" class="icon-btn" title="How to Play">
+          <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </button>
         <button id="audio-toggle-btn" class="icon-btn" title="Toggle Sound">
           <svg id="audio-svg-on" class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
@@ -75,12 +80,6 @@
             <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
             <line x1="23" y1="9" x2="17" y2="15"/>
             <line x1="17" y1="9" x2="23" y2="15"/>
-          </svg>
-        </button>
-        <button id="sensor-info-btn" class="icon-btn" title="Motion Sensor">
-          <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
-            <line x1="12" y1="18" x2="12.01" y2="18"/>
           </svg>
         </button>
       </div>
@@ -120,6 +119,86 @@
           <p class="title-hint">SWIPE UP TO FLICK</p>
           <p class="sub-hint">Or flick your phone physically if sensors enabled</p>
         </div>
+      </div>
+    </div>
+
+    <!-- HOME PAGE OVERLAY SCREEN -->
+    <div id="home-screen" class="home-screen-backdrop">
+      <div class="home-card">
+        <div class="home-logo-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 3h6v3H9z"/>
+            <path d="M10 6v3l-2 2v10a1 1 0 001 1h6a1 1 0 001-1V11l-2-2V6"/>
+            <path d="M8 15h8"/>
+          </svg>
+        </div>
+
+        <h1 class="home-title">FLIP PURE</h1>
+        <p class="home-subtitle">Physics Bottle Flip Challenge</p>
+
+        <div class="home-stats-preview">
+          <div class="preview-stat">
+            <span class="stat-num" id="home-best-val">0</span>
+            <span class="stat-lbl">BEST SCORE</span>
+          </div>
+        </div>
+
+        <div class="home-actions">
+          <button id="start-game-btn" class="home-primary-btn">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            <span>PLAY GAME</span>
+          </button>
+          
+          <button id="home-how-btn" class="home-secondary-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <span>HOW TO PLAY</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- HOW TO PLAY MODAL -->
+    <div id="how-modal" class="modal-backdrop hidden">
+      <div class="modal-card wide-card">
+        <div class="modal-header">
+          <h2>📖 How to Play</h2>
+        </div>
+        
+        <div class="how-grid">
+          <div class="how-step">
+            <div class="step-icon">👆</div>
+            <div class="step-body">
+              <h3>1. Swipe or Flick</h3>
+              <p>Swipe up on screen to aim and throw. Or physically flick your phone on mobile devices!</p>
+            </div>
+          </div>
+
+          <div class="how-step">
+            <div class="step-icon">💧</div>
+            <div class="step-body">
+              <h3>2. Water Weight</h3>
+              <p>Adjust water fill (0%–100%). More water lowers the center of mass, making it easier to land upright!</p>
+            </div>
+          </div>
+
+          <div class="how-step">
+            <div class="step-icon">🎯</div>
+            <div class="step-body">
+              <h3>3. Target Bullseye</h3>
+              <p>Land upright on the cyan bullseye for +150 PTS bonus and streak multipliers!</p>
+            </div>
+          </div>
+        </div>
+
+        <button id="close-how-btn" class="modal-primary-btn margin-top-md">
+          GOT IT!
+        </button>
       </div>
     </div>
 

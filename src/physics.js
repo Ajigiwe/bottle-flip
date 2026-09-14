@@ -16,12 +16,14 @@ export class PhysicsWorld {
 
     this.bottle = null;
     this.table = null;
+    this.leftBumper = null;
+    this.rightBumper = null;
     this.ground = null;
 
     this.bottleWidth = 34;
     this.bottleHeight = 112;
 
-    this.uprightTolerance = 0.26; // ~15 degrees in radians
+    this.uprightTolerance = 0.32; // ~18.3 degrees in radians for edge forgiveness
     this.settleTimer = 0;
     this.flightTime = 0;
 
@@ -52,18 +54,22 @@ export class PhysicsWorld {
       }
     );
 
-    // Single Main Table
+    // Single Enlarged Main Table with Edge Bumpers
     this.createSingleTable();
 
     // Bottle Body
     this.spawnBottle();
 
-    World.add(this.engine.world, [this.ground, this.table]);
+    const worldBodies = [this.ground, this.table];
+    if (this.leftBumper) worldBodies.push(this.leftBumper);
+    if (this.rightBumper) worldBodies.push(this.rightBumper);
+
+    World.add(this.engine.world, worldBodies);
   }
 
   createSingleTable() {
-    const platformHeight = 16;
-    const tableWidth = Math.min(680, Math.max(280, this.width * 0.88));
+    const platformHeight = 20; // Thicker sturdy tabletop
+    const tableWidth = Math.min(780, Math.max(320, this.width * 0.92));
 
     const tableX = this.width / 2;
     const tableY = this.height - 200;
@@ -71,11 +77,30 @@ export class PhysicsWorld {
     if (this.table) World.remove(this.engine.world, this.table);
     this.table = Bodies.rectangle(tableX, tableY, tableWidth, platformHeight, {
       isStatic: true,
-      friction: 0.85,
-      restitution: 0.1,
+      friction: 0.88,
+      restitution: 0.15,
       label: 'table'
     });
     this.table.customData = { width: tableWidth, height: platformHeight };
+
+    // Create subtle end-bumpers at table edges so bottle bounces off edges instead of sliding off
+    const bumperW = 8;
+    const bumperH = 30;
+    this.leftBumper = Bodies.rectangle(
+      tableX - tableWidth / 2 - bumperW / 2 + 2,
+      tableY - bumperH / 2 + platformHeight / 2,
+      bumperW,
+      bumperH,
+      { isStatic: true, restitution: 0.4, friction: 0.2, label: 'bumper' }
+    );
+
+    this.rightBumper = Bodies.rectangle(
+      tableX + tableWidth / 2 + bumperW / 2 - 2,
+      tableY - bumperH / 2 + platformHeight / 2,
+      bumperW,
+      bumperH,
+      { isStatic: true, restitution: 0.4, friction: 0.2, label: 'bumper' }
+    );
 
     this.targetOffsetX = tableWidth * 0.25;
   }
@@ -89,8 +114,8 @@ export class PhysicsWorld {
     const tableWidth = this.table.customData.width;
     const platformHeight = this.table.customData.height;
 
-    // Start bottle on the left side of the table
-    const bottleX = tablePos.x - tableWidth * 0.32;
+    // Start bottle on the left side of the enlarged table
+    const bottleX = tablePos.x - tableWidth * 0.35;
     const bottleY = tablePos.y - platformHeight / 2 - this.bottleHeight / 2;
 
     this.bottle = Bodies.rectangle(bottleX, bottleY, this.bottleWidth, this.bottleHeight, {
@@ -104,7 +129,7 @@ export class PhysicsWorld {
 
     this.updateCenterOfMass();
 
-    // Calculate maximum bottom Y across ALL vertices of the body
+    // Align bottle base flush on tabletop
     const tableTopY = tablePos.y - platformHeight / 2;
     let bottleBottomY = -Infinity;
     for (let i = 0; i < this.bottle.vertices.length; i++) {
@@ -173,7 +198,7 @@ export class PhysicsWorld {
       const linearSpeed = Vector.magnitude(this.bottle.velocity);
       const angularSpeed = Math.abs(this.bottle.angularVelocity);
 
-      if (linearSpeed < 0.35 && angularSpeed < 0.06 && this.flightTime > 300) {
+      if (linearSpeed < 0.38 && angularSpeed < 0.07 && this.flightTime > 300) {
         this.settleTimer += deltaTime;
 
         if (this.settleTimer > 350) {
@@ -216,15 +241,15 @@ export class PhysicsWorld {
 
     const bottlePos = this.bottle.position;
     const tablePos = this.table.position;
-    const tableWidth = this.table.customData?.width || 500;
+    const tableWidth = this.table.customData?.width || 600;
 
     const isOnTable =
       isUpright &&
-      Math.abs(bottlePos.x - tablePos.x) < tableWidth / 2 + 10 &&
-      bottlePos.y < tablePos.y;
+      Math.abs(bottlePos.x - tablePos.x) < tableWidth / 2 + 15 &&
+      bottlePos.y < tablePos.y + 10;
 
     const targetX = tablePos.x + this.targetOffsetX;
-    const isTargetHit = isOnTable && Math.abs(bottlePos.x - targetX) < 45;
+    const isTargetHit = isOnTable && Math.abs(bottlePos.x - targetX) < 48;
 
     const isOnGround = isUpright && bottlePos.y >= this.height - 120;
 
@@ -258,7 +283,7 @@ export class PhysicsWorld {
   }
 
   repositionTargetSpot() {
-    const tableWidth = this.table.customData?.width || 500;
+    const tableWidth = this.table.customData?.width || 600;
     this.targetOffsetX = (Math.random() * 0.7 - 0.35) * (tableWidth * 0.7);
   }
 }

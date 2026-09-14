@@ -19,22 +19,34 @@ class BottleFlipGame {
     this.scoreVal = document.getElementById('score-val');
     this.streakVal = document.getElementById('streak-val');
     this.bestVal = document.getElementById('best-val');
+    this.homeBestVal = document.getElementById('home-best-val');
     this.streakCard = document.getElementById('streak-card');
 
     this.bestVal.textContent = this.bestScore;
+    if (this.homeBestVal) this.homeBestVal.textContent = this.bestScore;
 
+    // Screens & Modals
+    this.homeScreen = document.getElementById('home-screen');
+    this.howModal = document.getElementById('how-modal');
     this.hintOverlay = document.getElementById('hint-overlay');
     this.sensorModal = document.getElementById('sensor-modal');
     this.resultToast = document.getElementById('result-toast');
     this.toastTitle = document.getElementById('toast-title');
     this.toastSub = document.getElementById('toast-sub');
 
+    // Home Action Buttons
+    this.startGameBtn = document.getElementById('start-game-btn');
+    this.homeHowBtn = document.getElementById('home-how-btn');
+    this.homeNavBtn = document.getElementById('home-nav-btn');
+    this.howToPlayBtn = document.getElementById('how-to-play-btn');
+    this.closeHowBtn = document.getElementById('close-how-btn');
+
+    // Game Controls
     this.resetBtn = document.getElementById('reset-btn');
     this.audioToggleBtn = document.getElementById('audio-toggle-btn');
     this.audioSvgOn = document.getElementById('audio-svg-on');
     this.audioSvgOff = document.getElementById('audio-svg-off');
 
-    this.sensorInfoBtn = document.getElementById('sensor-info-btn');
     this.grantSensorBtn = document.getElementById('grant-sensor-btn');
     this.skipSensorBtn = document.getElementById('skip-sensor-btn');
     this.fillSelector = document.getElementById('fill-selector');
@@ -44,6 +56,33 @@ class BottleFlipGame {
       this.audioSvgOff.classList.remove('hidden');
     }
 
+    // Home Screen Events
+    this.startGameBtn.addEventListener('click', () => {
+      soundManager.playClick();
+      this.homeScreen.classList.add('hidden');
+    });
+
+    this.homeNavBtn.addEventListener('click', () => {
+      soundManager.playClick();
+      this.homeScreen.classList.remove('hidden');
+    });
+
+    this.homeHowBtn.addEventListener('click', () => {
+      soundManager.playClick();
+      this.howModal.classList.remove('hidden');
+    });
+
+    this.howToPlayBtn.addEventListener('click', () => {
+      soundManager.playClick();
+      this.howModal.classList.remove('hidden');
+    });
+
+    this.closeHowBtn.addEventListener('click', () => {
+      soundManager.playClick();
+      this.howModal.classList.add('hidden');
+    });
+
+    // Game Control Events
     this.resetBtn.addEventListener('click', () => {
       soundManager.playClick();
       this.resetBottle();
@@ -58,11 +97,6 @@ class BottleFlipGame {
         this.audioSvgOn.classList.remove('hidden');
         this.audioSvgOff.classList.add('hidden');
       }
-    });
-
-    this.sensorInfoBtn.addEventListener('click', () => {
-      soundManager.playClick();
-      this.sensorModal.classList.remove('hidden');
     });
 
     this.grantSensorBtn.addEventListener('click', async () => {
@@ -114,15 +148,6 @@ class BottleFlipGame {
 
     this.physics.onLandingCallback = (result) => this.handleLandingResult(result);
 
-    if (
-      typeof DeviceMotionEvent !== 'undefined' &&
-      typeof DeviceMotionEvent.requestPermission === 'function'
-    ) {
-      setTimeout(() => {
-        this.sensorModal.classList.remove('hidden');
-      }, 500);
-    }
-
     this.lastTime = performance.now();
     requestAnimationFrame(this.gameLoop.bind(this));
   }
@@ -145,6 +170,7 @@ class BottleFlipGame {
         this.bestScore = this.score;
         localStorage.setItem('bottle_flip_best', this.bestScore.toString());
         this.bestVal.textContent = this.bestScore;
+        if (this.homeBestVal) this.homeBestVal.textContent = this.bestScore;
       }
 
       this.scoreVal.textContent = this.score;
