@@ -8,7 +8,7 @@ export class PhysicsWorld {
     this.height = canvasHeight;
 
     this.engine = Engine.create({
-      gravity: { x: 0, y: 1.5, scale: 0.001 }
+      gravity: { x: 0, y: 1.6, scale: 0.0012 }
     });
 
     this.liquidFill = 0.5; // 0.0 to 1.0
@@ -23,7 +23,7 @@ export class PhysicsWorld {
     this.bottleWidth = 34;
     this.bottleHeight = 112;
 
-    this.uprightTolerance = 0.32; // ~18.3 degrees in radians for edge forgiveness
+    this.uprightTolerance = 0.32; // ~18.3 degrees in radians for realistic landing tolerance
     this.settleTimer = 0;
     this.flightTime = 0;
 
@@ -48,13 +48,13 @@ export class PhysicsWorld {
       groundHeight,
       {
         isStatic: true,
-        friction: 0.9,
+        friction: 0.95,
         restitution: 0.2,
         label: 'ground'
       }
     );
 
-    // Single Enlarged Main Table with Edge Bumpers
+    // Single Main Table
     this.createSingleTable();
 
     // Bottle Body
@@ -68,7 +68,7 @@ export class PhysicsWorld {
   }
 
   createSingleTable() {
-    const platformHeight = 20; // Thicker sturdy tabletop
+    const platformHeight = 20;
     const tableWidth = Math.min(780, Math.max(320, this.width * 0.92));
 
     const tableX = this.width / 2;
@@ -77,13 +77,13 @@ export class PhysicsWorld {
     if (this.table) World.remove(this.engine.world, this.table);
     this.table = Bodies.rectangle(tableX, tableY, tableWidth, platformHeight, {
       isStatic: true,
-      friction: 0.88,
+      friction: 0.95,
       restitution: 0.15,
       label: 'table'
     });
     this.table.customData = { width: tableWidth, height: platformHeight };
 
-    // Create subtle end-bumpers at table edges so bottle bounces off edges instead of sliding off
+    // Edge bumpers
     const bumperW = 8;
     const bumperH = 30;
     this.leftBumper = Bodies.rectangle(
@@ -91,7 +91,7 @@ export class PhysicsWorld {
       tableY - bumperH / 2 + platformHeight / 2,
       bumperW,
       bumperH,
-      { isStatic: true, restitution: 0.4, friction: 0.2, label: 'bumper' }
+      { isStatic: true, restitution: 0.3, friction: 0.2, label: 'bumper' }
     );
 
     this.rightBumper = Bodies.rectangle(
@@ -99,7 +99,7 @@ export class PhysicsWorld {
       tableY - bumperH / 2 + platformHeight / 2,
       bumperW,
       bumperH,
-      { isStatic: true, restitution: 0.4, friction: 0.2, label: 'bumper' }
+      { isStatic: true, restitution: 0.3, friction: 0.2, label: 'bumper' }
     );
 
     this.targetOffsetX = tableWidth * 0.25;
@@ -114,22 +114,25 @@ export class PhysicsWorld {
     const tableWidth = this.table.customData.width;
     const platformHeight = this.table.customData.height;
 
-    // Start bottle on the left side of the enlarged table
+    // Start bottle on left side of table
     const bottleX = tablePos.x - tableWidth * 0.35;
     const bottleY = tablePos.y - platformHeight / 2 - this.bottleHeight / 2;
 
     this.bottle = Bodies.rectangle(bottleX, bottleY, this.bottleWidth, this.bottleHeight, {
       chamfer: { radius: [4, 4, 10, 10] },
-      friction: 0.85,
-      frictionAir: 0.008,
-      restitution: 0.28,
-      density: 0.002,
+      friction: 0.92,
+      frictionAir: 0.0018, // Low air friction for smooth realistic rotational momentum
+      restitution: 0.22,
+      density: 0.0022,
       label: 'bottle'
     });
 
+    // Realistic rotational inertia
+    Body.setInertia(this.bottle, 3400);
+
     this.updateCenterOfMass();
 
-    // Align bottle base flush on tabletop
+    // Calculate maximum bottom Y across ALL vertices and position flush on table
     const tableTopY = tablePos.y - platformHeight / 2;
     let bottleBottomY = -Infinity;
     for (let i = 0; i < this.bottle.vertices.length; i++) {
@@ -198,7 +201,7 @@ export class PhysicsWorld {
       const linearSpeed = Vector.magnitude(this.bottle.velocity);
       const angularSpeed = Math.abs(this.bottle.angularVelocity);
 
-      if (linearSpeed < 0.38 && angularSpeed < 0.07 && this.flightTime > 300) {
+      if (linearSpeed < 0.35 && angularSpeed < 0.06 && this.flightTime > 300) {
         this.settleTimer += deltaTime;
 
         if (this.settleTimer > 350) {
