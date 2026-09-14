@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Bottle Flip Physics - Mobile & Web Game</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Top Navigation & Score Dashboard -->
+    <header class="ui-header">
+      <div class="brand">
+        <svg class="brand-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 3h6v3H9z"/>
+          <path d="M10 6v3l-2 2v10a1 1 0 001 1h6a1 1 0 001-1V11l-2-2V6"/>
+          <path d="M8 15h8"/>
+        </svg>
+        <span class="title">FLIP PURE</span>
+      </div>
+
+      <div class="hud-metrics">
+        <div class="metric-item">
+          <svg class="metric-icon score-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          </svg>
+          <div class="metric-content">
+            <span class="metric-label">SCORE</span>
+            <span class="metric-value" id="score-val">0</span>
+          </div>
+        </div>
+
+        <div class="metric-divider"></div>
+
+        <div class="metric-item" id="streak-card">
+          <svg class="metric-icon streak-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z"/>
+          </svg>
+          <div class="metric-content">
+            <span class="metric-label">STREAK</span>
+            <span class="metric-value" id="streak-val">0</span>
+          </div>
+        </div>
+
+        <div class="metric-divider"></div>
+
+        <div class="metric-item">
+          <svg class="metric-icon best-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9H4.5a2.5 2.5 0 010-5H6"/>
+            <path d="M18 9h1.5a2.5 2.5 0 000-5H18"/>
+            <path d="M4 22h16"/>
+            <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/>
+            <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/>
+            <path d="M18 2H6v7a6 6 0 0012 0V2z"/>
+          </svg>
+          <div class="metric-content">
+            <span class="metric-label">BEST</span>
+            <span class="metric-value" id="best-val">0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button id="audio-toggle-btn" class="icon-btn" title="Toggle Sound">
+          <svg id="audio-svg-on" class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/>
+          </svg>
+          <svg id="audio-svg-off" class="btn-svg hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <line x1="23" y1="9" x2="17" y2="15"/>
+            <line x1="17" y1="9" x2="23" y2="15"/>
+          </svg>
+        </button>
+        <button id="sensor-info-btn" class="icon-btn" title="Motion Sensor">
+          <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+            <line x1="12" y1="18" x2="12.01" y2="18"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Bottom Dock Bar -->
+    <div class="ui-bottom-dock">
+      <div class="dock-section fill-control-section">
+        <span class="dock-label">WATER FILL</span>
+        <div class="segmented-control" id="fill-selector">
+          <button class="segment-btn" data-fill="0.0">0%</button>
+          <button class="segment-btn" data-fill="0.25">25%</button>
+          <button class="segment-btn active" data-fill="0.50">50%</button>
+          <button class="segment-btn" data-fill="0.75">75%</button>
+          <button class="segment-btn" data-fill="1.0">100%</button>
+        </div>
+      </div>
+
+      <button id="reset-btn" class="primary-dock-btn">
+        <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21.5 2v6h-6"/>
+          <path d="M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/>
+        </svg>
+        <span>RESET</span>
+      </button>
+    </div>
+
+    <!-- Onscreen Gesture Tutorial Hint -->
+    <div id="hint-overlay" class="hint-overlay">
+      <div class="gesture-card">
+        <div class="gesture-icon-wrap">
+          <svg class="swipe-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 19V5M5 12l7-7 7 7"/>
+          </svg>
+        </div>
+        <div class="gesture-text">
+          <p class="title-hint">SWIPE UP TO FLICK</p>
+          <p class="sub-hint">Or flick your phone physically if sensors enabled</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Motion Permission Modal -->
+    <div id="sensor-modal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <div class="modal-icon-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+            <path d="M12 18h.01"/>
+          </svg>
+        </div>
+        <h2>Motion Controls</h2>
+        <p>Physically flick your phone into the air to flip the bottle!</p>
+        <p class="subtext">Requires accelerometer sensor access on mobile devices.</p>
+        <div class="modal-actions">
+          <button id="grant-sensor-btn" class="modal-primary-btn">
+            ENABLE MOTION SENSORS
+          </button>
+          <button id="skip-sensor-btn" class="modal-secondary-btn">
+            USE TOUCH / MOUSE SWIPE
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification Banner -->
+    <div id="result-toast" class="result-toast hidden">
+      <div class="toast-title" id="toast-title">PERFECT LANDING</div>
+      <div class="toast-subtitle" id="toast-sub">+100 PTS • STREAK x2</div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
