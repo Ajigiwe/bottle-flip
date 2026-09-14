@@ -9,8 +9,8 @@ export class MotionController {
     this.isSensorEnabled = false;
     this.hasSensorPermission = false;
 
-    // Flick sensitivity parameters
-    this.flickThreshold = 14.0; // m/s^2 spike threshold
+    // Tuned lower sensitivity parameters for controlled, realistic flicking
+    this.flickThreshold = 18.5; // Higher m/s^2 spike threshold (requires deliberate flick)
     this.lastFlickTime = 0;
 
     // Touch / Pointer drag state
@@ -40,7 +40,6 @@ export class MotionController {
       }
       return false;
     } else if (typeof DeviceMotionEvent !== 'undefined') {
-      // Non-iOS standard browsers (Android, Chrome mobile)
       this.hasSensorPermission = true;
       this.enableSensor();
       return true;
@@ -73,18 +72,17 @@ export class MotionController {
     const magnitude = Math.sqrt(x * x + y * y + z * z);
     const now = Date.now();
 
-    // Check for rapid flick acceleration spike
+    // Check for firm, deliberate flick acceleration spike
     if (magnitude > this.flickThreshold && now - this.lastFlickTime > 1200) {
       this.lastFlickTime = now;
 
-      // Translate acceleration magnitude & directional vectors into throw forces
-      // Forward flick (negative Y on phone screen or positive Z) translates to upward launch
-      const forwardForce = Math.min(28, magnitude * 0.95);
-      const upwardVel = -Math.max(14, forwardForce * 0.9);
-      const rightVel = Math.min(12, Math.max(-12, x * 1.2 + 6)); // Default rightward throw trajectory
-      const flipSpin = -Math.min(0.35, 0.12 + magnitude * 0.008); // Flip torque
+      // Dampened force scaling for smooth, controlled throws
+      const forwardForce = Math.min(22, magnitude * 0.7);
+      const upwardVel = -Math.max(12, forwardForce * 0.75);
+      const rightVel = Math.min(8, Math.max(-8, x * 0.8 + 4));
+      const flipSpin = -Math.min(0.25, 0.08 + magnitude * 0.005);
 
-      this.sound.playWhoosh(magnitude / 15);
+      this.sound.playWhoosh(magnitude / 20);
       this.physics.throwBottle(rightVel, upwardVel, flipSpin);
 
       if (this.onThrowTriggered) {
@@ -110,17 +108,11 @@ export class MotionController {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // Only initiate drag if pointer starts near bottle or in canvas
-    const bottlePos = this.physics.bottle.position;
-    const dist = Math.hypot(x - bottlePos.x, y - bottlePos.y);
-
-    if (dist < 180 || true) { // Allow dragging anywhere on screen for easy swipe
-      this.isDragging = true;
-      this.physics.state = 'AIMING';
-      this.dragStart = { x, y, time: Date.now() };
-      this.dragCurrent = { x, y };
-      this.dragVelocityHistory = [];
-    }
+    this.isDragging = true;
+    this.physics.state = 'AIMING';
+    this.dragStart = { x, y, time: Date.now() };
+    this.dragCurrent = { x, y };
+    this.dragVelocityHistory = [];
   }
 
   handlePointerMove(e) {
@@ -154,28 +146,25 @@ export class MotionController {
     const dy = this.dragCurrent.y - this.dragStart.y;
     const dt = Math.max(1, Date.now() - this.dragStart.time);
 
-    // Upward drag is negative dy
-    if (dy < -25 && dt < 800) {
-      // Calculate release velocity vector
-      let avgVx = (dx / dt) * 16;
-      let avgVy = (dy / dt) * 16;
+    // Require deliberate upward swipe (> 35px drag distance)
+    if (dy < -35 && dt < 800) {
+      // Calculate smoothed & dampened throw velocities
+      let avgVx = (dx / dt) * 14;
+      let avgVy = (dy / dt) * 14;
 
-      // Cap and scale throw velocities for realistic trajectory arc
-      const throwVx = Math.min(18, Math.max(-8, avgVx * 0.45 + 5)); // Rightward boost toward target
-      const throwVy = Math.max(-26, Math.min(-10, avgVy * 0.75));
+      const throwVx = Math.min(14, Math.max(-6, avgVx * 0.35 + 4.5));
+      const throwVy = Math.max(-20, Math.min(-9, avgVy * 0.52));
 
-      // Calculate spin torque proportional to throw speed
       const throwSpeed = Math.hypot(throwVx, throwVy);
-      const angularSpin = -(0.14 + throwSpeed * 0.007);
+      const angularSpin = -(0.09 + throwSpeed * 0.005);
 
-      this.sound.playWhoosh(throwSpeed / 18);
+      this.sound.playWhoosh(throwSpeed / 22);
       this.physics.throwBottle(throwVx, throwVy, angularSpin);
 
       if (this.onThrowTriggered) {
         this.onThrowTriggered('TOUCH_SWIPE');
       }
     } else {
-      // Cancel aim
       this.physics.state = 'READY';
     }
   }
@@ -188,13 +177,13 @@ export class MotionController {
     const dy = this.dragCurrent.y - this.dragStart.y;
     const dt = Math.max(1, Date.now() - this.dragStart.time);
 
-    if (dy >= 0) return null; // Only show trajectory on upward pull
+    if (dy >= -15) return null;
 
-    let avgVx = (dx / dt) * 16;
-    let avgVy = (dy / dt) * 16;
+    let avgVx = (dx / dt) * 14;
+    let avgVy = (dy / dt) * 14;
 
-    const vx = Math.min(18, Math.max(-8, avgVx * 0.45 + 5));
-    const vy = Math.max(-26, Math.min(-10, avgVy * 0.75));
+    const vx = Math.min(14, Math.max(-6, avgVx * 0.35 + 4.5));
+    const vy = Math.max(-20, Math.min(-9, avgVy * 0.52));
 
     return { vx, vy, startX: this.dragStart.x, startY: this.dragStart.y };
   }
