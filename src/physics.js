@@ -192,6 +192,16 @@ export class PhysicsWorld {
           const other = bodyA === this.bottle ? bodyB : bodyA;
           const speed = Vector.magnitude(this.bottle.velocity);
           if (this.onCollisionCallback) this.onCollisionCallback(other, speed);
+
+          // Instant loss if bottle hits table or ground flat on its side
+          if ((this.state === 'FLIGHT' || this.state === 'SETTLING') && (other === this.table || other === this.ground)) {
+            if (!this.isCurrentlyUpright()) {
+              this.state = 'FAILED';
+              if (this.onLandingCallback) {
+                this.onLandingCallback({ isUpright: false, isTarget: false, reason: 'SIDE_LANDING' });
+              }
+            }
+          }
         }
       }
     });

@@ -170,29 +170,37 @@ export class MotionController {
     this._powerPercent = 0;
   }
 
+  calculateTouchVelocity(dx, dy) {
+    const dragY = Math.max(0, -dy);
+    const normY = Math.min(1, Math.max(0, (dragY - 20) / 180));
+    
+    // Vertical velocity ranges smoothly from -11.0 to -22.5
+    const throwVy = -11.0 - normY * 11.5;
+
+    // Horizontal velocity scales cleanly with drag direction (centered at 0 for straight swipe)
+    const normX = Math.min(1, Math.max(-1, dx / 140));
+    const throwVx = normX * 13.0;
+
+    // Angular spin scales with throw power
+    const angularSpin = -(0.11 + normY * 0.12);
+
+    return { vx: throwVx, vy: throwVy, angularSpin, powerPercent: normY };
+  }
+
   handlePointerMove(e) {
     if (!this.isDragging || this.physics.state !== 'AIMING') return;
     const rect = e.target.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    const now = Date.now();
-    const dt = now - (this.dragCurrent.time || now);
 
-    if (dt > 0) {
-      const vx = (x - this.dragCurrent.x) / dt;
-      const vy = (y - this.dragCurrent.y) / dt;
-      this.dragVelocityHistory.push({ vx, vy, time: now });
-      if (this.dragVelocityHistory.length > 5) this.dragVelocityHistory.shift();
-    }
+    this.dragCurrent = { x, y, time: Date.now() };
 
-    this.dragCurrent = { x, y, time: now };
-
-    // Update live power%
+    const dx = this.dragCurrent.x - this.dragStart.x;
     const dy = this.dragCurrent.y - this.dragStart.y;
+
     if (dy < 0) {
-      const avgVy = (dy / Math.max(1, now - this.dragStart.time)) * 14;
-      const throwVy = Math.max(-this._maxThrowVy, Math.min(-11, avgVy * this.swipeScaleVy));
-      this._powerPercent = Math.min(1, Math.abs(throwVy) / this._maxThrowVy);
+      const calc = this.calculateTouchVelocity(dx, dy);
+      this._powerPercent = calc.powerPercent;
     } else {
       this._powerPercent = 0;
     }
@@ -207,17 +215,11 @@ export class MotionController {
 
     const dx = this.dragCurrent.x - this.dragStart.x;
     const dy = this.dragCurrent.y - this.dragStart.y;
-    const dt = Math.max(1, Date.now() - this.dragStart.time);
 
-    if (dy < -this.minSwipeDist && dt < 800) {
-      const avgVx = (dx / dt) * 14;
-      const avgVy = (dy / dt) * 14;
-      const throwVx = Math.min(16, Math.max(-6, avgVx * this.swipeScaleVx + 4.5));
-      const throwVy = Math.max(-this._maxThrowVy, Math.min(-11, avgVy * this.swipeScaleVy));
-      const angularSpin = -(0.10 + Math.abs(throwVy) * 0.0055);
-
-      this.sound.playWhoosh(Math.abs(throwVy) / 20);
-      this.physics.throwBottle(throwVx, throwVy, angularSpin);
+    if (dy < -20) {
+      const calc = this.calculateTouchVelocity(dx, dy);
+      this.sound.playWhoosh(Math.abs(calc.vy) / 20);
+      this.physics.throwBottle(calc.vx, calc.vy, calc.angularSpin);
       if (this.onThrowTriggered) this.onThrowTriggered('TOUCH_SWIPE');
     } else {
       this.physics.state = 'READY';
@@ -234,15 +236,10 @@ export class MotionController {
 
     const dx = this.dragCurrent.x - this.dragStart.x;
     const dy = this.dragCurrent.y - this.dragStart.y;
-    const dt = Math.max(1, Date.now() - this.dragStart.time);
 
     if (dy >= -15) return null;
 
-    const avgVx = (dx / dt) * 14;
-    const avgVy = (dy / dt) * 14;
-    const vx = Math.min(16, Math.max(-6, avgVx * this.swipeScaleVx + 4.5));
-    const vy = Math.max(-this._maxThrowVy, Math.min(-11, avgVy * this.swipeScaleVy));
-
-    return { vx, vy, startX: this.dragStart.x, startY: this.dragStart.y };
+    const calc = this.calculateTouchVelocity(dx, dy);
+    return { vx: calc.vx, vy: calc.vy, startX: this.dragStart.x, startY: this.dragStart.y };
   }
 }
