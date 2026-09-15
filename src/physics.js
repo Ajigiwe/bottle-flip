@@ -18,16 +18,25 @@ export class PhysicsWorld {
     this.table = null;
     this.leftBumper = null;
     this.rightBumper = null;
+    this.leftWall = null;
+    this.rightWall = null;
     this.ground = null;
 
     this.bottleWidth = 34;
     this.bottleHeight = 112;
 
-    this.uprightTolerance = 0.32; // ~18.3 degrees in radians for realistic landing tolerance
+    this.uprightTolerance = 0.32; // ~18.3 degrees
     this.settleTimer = 0;
     this.flightTime = 0;
 
     this.targetOffsetX = 0;
+    this._targetDir = 1;       // moving target oscillation direction
+    this._targetSpeed = 0;     // px per frame — increases with difficulty
+
+    // Difficulty
+    this.difficulty = 0;       // increments every 5 successful flips
+    this.successCount = 0;
+    this.windForce = 0;        // horizontal wind applied during flight
 
     this.onLandingCallback = null;
     this.onCollisionCallback = null;
@@ -36,115 +45,110 @@ export class PhysicsWorld {
     this.setupCollisionEvents();
   }
 
+  // ── World Setup ─────────────────────────────────────────────────────────
+
   initWorld() {
     World.clear(this.engine.world, false);
 
-    // Ground Plane
     const groundHeight = 60;
     this.ground = Bodies.rectangle(
       this.width / 2,
       this.height - groundHeight / 2,
       this.width * 2,
       groundHeight,
-      {
-        isStatic: true,
-        friction: 0.95,
-        restitution: 0.2,
-        label: 'ground'
-      }
+      { isStatic: true, friction: 0.95, restitution: 0.2, label: 'ground' }
     );
 
-    // Single Main Table
-    this.createSingleTable();
+    // Side walls — enable wall bounces for trick shots
+    const wallH = this.height * 2;
+    this.leftWall = Bodies.rectangle(-25, this.height / 2, 50, wallH, {
+      isStatic: true, restitution: 0.45, friction: 0.1, label: 'wall'
+    });
+    this.rightWall = Bodies.rectangle(this.width + 25, this.height / 2, 50, wallH, {
+      isStatic: true, restitution: 0.45, friction: 0.1, label: 'wall'
+    });
 
-    // Bottle Body
+    this.createSingleTable();
     this.spawnBottle();
 
-    const worldBodies = [this.ground, this.table];
-    if (this.leftBumper) worldBodies.push(this.leftBumper);
-    if (this.rightBumper) worldBodies.push(this.rightBumper);
-
-    World.add(this.engine.world, worldBodies);
+    World.add(this.engine.world, [
+      this.ground,
+      this.leftWall,
+      this.rightWall,
+      this.table,
+      ...(this.leftBumper ? [this.leftBumper] : []),
+      ...(this.rightBumper ? [this.rightBumper] : []),
+    ]);
   }
 
   createSingleTable() {
     const platformHeight = 20;
-    const tableWidth = Math.min(780, Math.max(320, this.width * 0.92));
+    // Table width shrinks slightly with difficulty (max 20% narrower)
+    const shrinkFactor = Math.max(0.78, 1 - this.difficulty * 0.044);
+    const tableWidth = Math.min(780, Math.max(260, this.width * 0.92 * shrinkFactor));
 
     const tableX = this.width / 2;
     const tableY = this.height - 200;
 
     if (this.table) World.remove(this.engine.world, this.table);
     this.table = Bodies.rectangle(tableX, tableY, tableWidth, platformHeight, {
-      isStatic: true,
-      friction: 0.95,
-      restitution: 0.15,
-      label: 'table'
+      isStatic: true, friction: 0.95, restitution: 0.15, label: 'table'
     });
     this.table.customData = { width: tableWidth, height: platformHeight };
 
-    // Edge bumpers
     const bumperW = 8;
     const bumperH = 30;
+    if (this.leftBumper) World.remove(this.engine.world, this.leftBumper);
+    if (this.rightBumper) World.remove(this.engine.world, this.rightBumper);
+
     this.leftBumper = Bodies.rectangle(
       tableX - tableWidth / 2 - bumperW / 2 + 2,
       tableY - bumperH / 2 + platformHeight / 2,
-      bumperW,
-      bumperH,
+      bumperW, bumperH,
       { isStatic: true, restitution: 0.3, friction: 0.2, label: 'bumper' }
     );
-
     this.rightBumper = Bodies.rectangle(
       tableX + tableWidth / 2 + bumperW / 2 - 2,
       tableY - bumperH / 2 + platformHeight / 2,
-      bumperW,
-      bumperH,
+      bumperW, bumperH,
       { isStatic: true, restitution: 0.3, friction: 0.2, label: 'bumper' }
     );
 
     this.targetOffsetX = tableWidth * 0.25;
+    // Moving target speed scales with difficulty
+    this._targetSpeed = this.difficulty * 0.55;
   }
 
   spawnBottle() {
-    if (this.bottle) {
-      World.remove(this.engine.world, this.bottle);
-    }
+    if (this.bottle) World.remove(this.engine.world, this.bottle);
 
     const tablePos = this.table.position;
     const tableWidth = this.table.customData.width;
     const platformHeight = this.table.customData.height;
 
-    // Start bottle on left side of table
     const bottleX = tablePos.x - tableWidth * 0.35;
     const bottleY = tablePos.y - platformHeight / 2 - this.bottleHeight / 2;
 
     this.bottle = Bodies.rectangle(bottleX, bottleY, this.bottleWidth, this.bottleHeight, {
       chamfer: { radius: [4, 4, 10, 10] },
       friction: 0.92,
-      frictionAir: 0.0018, // Low air friction for smooth realistic rotational momentum
+      frictionAir: 0.0018,
       restitution: 0.22,
       density: 0.0022,
       label: 'bottle'
     });
 
-    // Realistic rotational inertia
     Body.setInertia(this.bottle, 3400);
-
     this.updateCenterOfMass();
 
-    // Calculate maximum bottom Y across ALL vertices and position flush on table
     const tableTopY = tablePos.y - platformHeight / 2;
     let bottleBottomY = -Infinity;
-    for (let i = 0; i < this.bottle.vertices.length; i++) {
-      if (this.bottle.vertices[i].y > bottleBottomY) {
-        bottleBottomY = this.bottle.vertices[i].y;
-      }
+    for (const v of this.bottle.vertices) {
+      if (v.y > bottleBottomY) bottleBottomY = v.y;
     }
-
-    const deltaY = tableTopY - bottleBottomY;
     Body.setPosition(this.bottle, {
       x: this.bottle.position.x,
-      y: this.bottle.position.y + deltaY
+      y: this.bottle.position.y + (tableTopY - bottleBottomY)
     });
 
     World.add(this.engine.world, this.bottle);
@@ -152,6 +156,8 @@ export class PhysicsWorld {
     this.flightTime = 0;
     this.settleTimer = 0;
   }
+
+  // ── Physics Helpers ──────────────────────────────────────────────────────
 
   updateCenterOfMass() {
     if (!this.bottle) return;
@@ -166,11 +172,9 @@ export class PhysicsWorld {
 
   throwBottle(velocityX, velocityY, angularVelocity) {
     if (this.state !== 'READY' && this.state !== 'AIMING') return;
-
     Body.setStatic(this.bottle, false);
     Body.setVelocity(this.bottle, { x: velocityX, y: velocityY });
     Body.setAngularVelocity(this.bottle, angularVelocity);
-
     this.state = 'FLIGHT';
     this.flightTime = 0;
     this.settleTimer = 0;
@@ -178,22 +182,39 @@ export class PhysicsWorld {
 
   setupCollisionEvents() {
     Events.on(this.engine, 'collisionStart', (event) => {
-      const pairs = event.pairs;
-      for (let i = 0; i < pairs.length; i++) {
-        const { bodyA, bodyB } = pairs[i];
+      for (const pair of event.pairs) {
+        const { bodyA, bodyB } = pair;
         if (bodyA === this.bottle || bodyB === this.bottle) {
           const other = bodyA === this.bottle ? bodyB : bodyA;
           const speed = Vector.magnitude(this.bottle.velocity);
-          if (this.onCollisionCallback) {
-            this.onCollisionCallback(other, speed);
-          }
+          if (this.onCollisionCallback) this.onCollisionCallback(other, speed);
         }
       }
     });
   }
 
+  // ── Per-Frame Update ──────────────────────────────────────────────────────
+
   update(deltaTime = 1000 / 60) {
+    // Apply wind during flight
+    if ((this.state === 'FLIGHT' || this.state === 'SETTLING') && this.windForce !== 0 && this.bottle) {
+      Body.applyForce(this.bottle, this.bottle.position, {
+        x: this.windForce * this.bottle.mass * 0.001,
+        y: 0
+      });
+    }
+
     Engine.update(this.engine, deltaTime);
+
+    // Animate moving target when idle
+    if (this.state === 'READY' && this._targetSpeed > 0) {
+      const tableWidth = this.table.customData?.width || 600;
+      const limit = tableWidth * 0.38;
+      this.targetOffsetX += this._targetDir * this._targetSpeed;
+      if (this.targetOffsetX > limit || this.targetOffsetX < -limit) {
+        this._targetDir *= -1;
+      }
+    }
 
     if (this.state === 'FLIGHT' || this.state === 'SETTLING') {
       this.flightTime += deltaTime;
@@ -203,35 +224,23 @@ export class PhysicsWorld {
 
       if (linearSpeed < 0.35 && angularSpeed < 0.06 && this.flightTime > 300) {
         this.settleTimer += deltaTime;
-
-        if (this.settleTimer > 350) {
-          this.evaluateLanding();
-        }
+        if (this.settleTimer > 350) this.evaluateLanding();
       } else {
         this.settleTimer = 0;
-        if (linearSpeed > 0.6) {
-          this.state = 'FLIGHT';
-        } else {
-          this.state = 'SETTLING';
-        }
+        this.state = linearSpeed > 0.6 ? 'FLIGHT' : 'SETTLING';
       }
 
-      if (
-        this.bottle.position.y > this.height + 200 ||
-        this.bottle.position.x < -100 ||
-        this.bottle.position.x > this.width + 100
-      ) {
+      // Out-of-bounds check (walls now exist but top/bottom still relevant)
+      if (this.bottle.position.y > this.height + 200) {
         this.state = 'FAILED';
         if (this.onLandingCallback) {
-          this.onLandingCallback({
-            isUpright: false,
-            isTarget: false,
-            reason: 'OUT_OF_BOUNDS'
-          });
+          this.onLandingCallback({ isUpright: false, isTarget: false, reason: 'OUT_OF_BOUNDS' });
         }
       }
     }
   }
+
+  // ── Landing Evaluation ───────────────────────────────────────────────────
 
   evaluateLanding() {
     const angle = this.bottle.angle;
@@ -258,26 +267,44 @@ export class PhysicsWorld {
 
     if (isUpright && (isOnTable || isOnGround)) {
       this.state = 'LANDED';
+
+      // Update difficulty every 5 successes
+      this.successCount++;
+      if (this.successCount % 5 === 0) {
+        this.difficulty = Math.min(5, this.difficulty + 1);
+        // Gradually increase wind
+        this.windForce = (Math.random() > 0.5 ? 1 : -1) * this.difficulty * 0.8;
+        // Rebuild table with narrowed width + faster target
+        World.remove(this.engine.world, this.table);
+        if (this.leftBumper) World.remove(this.engine.world, this.leftBumper);
+        if (this.rightBumper) World.remove(this.engine.world, this.rightBumper);
+        this.createSingleTable();
+        World.add(this.engine.world, [
+          this.table,
+          ...(this.leftBumper ? [this.leftBumper] : []),
+          ...(this.rightBumper ? [this.rightBumper] : []),
+        ]);
+      }
+
       if (this.onLandingCallback) {
         this.onLandingCallback({
           isUpright: true,
           isTable: isOnTable,
           isTarget: isTargetHit,
-          isOnGround: isOnGround,
-          accuracy: Math.abs(bottlePos.x - targetX)
+          isOnGround,
+          accuracy: Math.abs(bottlePos.x - targetX),
+          difficulty: this.difficulty,
         });
       }
     } else {
       this.state = 'FAILED';
       if (this.onLandingCallback) {
-        this.onLandingCallback({
-          isUpright: false,
-          isTarget: false,
-          reason: 'TUMBLED'
-        });
+        this.onLandingCallback({ isUpright: false, isTarget: false, reason: 'TUMBLED' });
       }
     }
   }
+
+  // ── Resize & Utilities ───────────────────────────────────────────────────
 
   resize(newWidth, newHeight) {
     this.width = newWidth;
@@ -288,5 +315,12 @@ export class PhysicsWorld {
   repositionTargetSpot() {
     const tableWidth = this.table.customData?.width || 600;
     this.targetOffsetX = (Math.random() * 0.7 - 0.35) * (tableWidth * 0.7);
+  }
+
+  resetDifficulty() {
+    this.difficulty = 0;
+    this.successCount = 0;
+    this.windForce = 0;
+    this._targetSpeed = 0;
   }
 }

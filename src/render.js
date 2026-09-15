@@ -1,23 +1,26 @@
 import confetti from 'canvas-confetti';
+import { EffectsEngine } from './effects.js';
 
 export class GameRenderer {
-  constructor(canvas, physicsWorld, motionController) {
+  constructor(canvas, physicsWorld, motionController, skinSystem) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.physics = physicsWorld;
     this.motion = motionController;
+    this.skinSystem = skinSystem;
 
-    this.particles = [];
+    this.effects = new EffectsEngine();
+
     this.bubbles = [];
     this.sloshAngle = 0;
     this.sloshVelocity = 0;
 
-    this.initBubbles();
+    this._initBubbles();
     this.resizeCanvas();
     window.addEventListener('resize', this.resizeCanvas.bind(this));
   }
 
-  initBubbles() {
+  _initBubbles() {
     this.bubbles = [];
     for (let i = 0; i < 10; i++) {
       this.bubbles.push({
@@ -25,7 +28,7 @@ export class GameRenderer {
         y: Math.random() * 40,
         r: Math.random() * 1.5 + 0.8,
         speed: Math.random() * 0.3 + 0.15,
-        offset: Math.random() * Math.PI * 2
+        offset: Math.random() * Math.PI * 2,
       });
     }
   }
@@ -35,50 +38,78 @@ export class GameRenderer {
     this.height = window.innerHeight;
     this.canvas.width = this.width;
     this.canvas.height = this.height;
+
+    this.effects.resize(this.width, this.height);
+
     if (this.physics) {
-      this.physics.resize(this.width, this.height);
+      const safeToRebuild = !['FLIGHT', 'SETTLING', 'AIMING'].includes(this.physics.state);
+      if (safeToRebuild) {
+        this.physics.resize(this.width, this.height);
+      } else {
+        this.physics.width = this.width;
+        this.physics.height = this.height;
+      }
     }
   }
 
-  render() {
-    this.ctx.clearRect(0, 0, this.width, this.height);
+  // ── Master Render ────────────────────────────────────────────────────────
 
-    this.drawStudioBackground();
+  render(streak = 0, bestScore = 0) {
+    const ctx = this.ctx;
+
+    // Screen shake transform wraps everything
+    ctx.save();
+    this.effects.applyShake(ctx);
+
+    // 1. Offscreen background + animated dust
+    this.effects.drawBackground(ctx, this.width, this.height);
+
+    // 2. Table
     this.drawSingleMainTable();
+
+    // 3. Ripples on table surface
+    this.effects.drawRipples(ctx);
+
+    // 4. Trajectory preview arc
     this.drawTrajectory();
-    this.drawCleanBottle();
-    this.updateAndDrawParticles();
+
+    // 5. Spin trail (drawn behind bottle)
+    this.effects.drawTrail(ctx);
+
+    // 6. Bottle (with active skin)
+    this.drawCleanBottle(this.skinSystem?.getActive(bestScore));
+
+    // 7. Fire aura (drawn in front of bottle)
+    this.effects.drawFire(ctx);
+
+    // 8. Pooled landing particles
+    this.effects.drawParticles(ctx);
+
+    // 9. Power meter overlay (while aiming)
+    this.drawPowerMeter();
+
+    // 10. Wind indicator (when wind is active)
+    this.drawWindIndicator();
+
+    ctx.restore();
+
+    // Feed fire each frame while airborne
+    const bottle = this.physics.bottle;
+    if (bottle && (this.physics.state === 'FLIGHT' || this.physics.state === 'SETTLING')) {
+      let cx = 0, cy = 0;
+      for (const v of bottle.vertices) { cx += v.x; cy += v.y; }
+      cx /= bottle.vertices.length; cy /= bottle.vertices.length;
+      this.effects.recordTrail(cx, cy);
+      this.effects.feedFire(cx, cy, streak);
+    } else {
+      this.effects.clearTrail();
+    }
   }
 
-  drawStudioBackground() {
-    const studioGrad = this.ctx.createRadialGradient(
-      this.width / 2, this.height * 0.32, 60,
-      this.width / 2, this.height * 0.5, Math.max(this.width, this.height) * 0.75
-    );
-    studioGrad.addColorStop(0, '#1a2233');
-    studioGrad.addColorStop(0.55, '#0f1420');
-    studioGrad.addColorStop(1, '#070a10');
-
-    this.ctx.fillStyle = studioGrad;
-    this.ctx.fillRect(0, 0, this.width, this.height);
-
-    const floorY = this.height - 60;
-    const floorGrad = this.ctx.createLinearGradient(0, floorY, 0, this.height);
-    floorGrad.addColorStop(0, '#0a0d14');
-    floorGrad.addColorStop(1, '#040508');
-
-    this.ctx.fillStyle = floorGrad;
-    this.ctx.fillRect(0, floorY, this.width, 60);
-
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
-    this.ctx.lineWidth = 1;
-    this.ctx.beginPath();
-    this.ctx.moveTo(0, floorY);
-    this.ctx.lineTo(this.width, floorY);
-    this.ctx.stroke();
-  }
+  // ── Table ────────────────────────────────────────────────────────────────
 
   drawSingleMainTable() {
+    const ctx = this.ctx;
     const table = this.physics.table;
     if (!table) return;
 
@@ -89,121 +120,121 @@ export class GameRenderer {
     const legWidth = 14;
     const legHeight = Math.max(20, floorY - (pos.y + h / 2));
 
-    this.ctx.save();
-    this.ctx.translate(pos.x, pos.y);
+    ctx.save();
+    ctx.translate(pos.x, pos.y);
 
     const legLeftX = -w / 2 + 20;
     const legRightX = w / 2 - 20 - legWidth;
 
-    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    this.ctx.beginPath();
-    this.ctx.ellipse(legLeftX + legWidth / 2, legHeight + h / 2 + 2, 18, 5, 0, 0, Math.PI * 2);
-    this.ctx.ellipse(legRightX + legWidth / 2, legHeight + h / 2 + 2, 18, 5, 0, 0, Math.PI * 2);
-    this.ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.ellipse(legLeftX + legWidth / 2, legHeight + h / 2 + 2, 18, 5, 0, 0, Math.PI * 2);
+    ctx.ellipse(legRightX + legWidth / 2, legHeight + h / 2 + 2, 18, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
 
-    const legGrad = this.ctx.createLinearGradient(0, h / 2, 0, h / 2 + legHeight);
+    const legGrad = ctx.createLinearGradient(0, h / 2, 0, h / 2 + legHeight);
     legGrad.addColorStop(0, '#1f1915');
     legGrad.addColorStop(1, '#0c0908');
-    this.ctx.fillStyle = legGrad;
+    ctx.fillStyle = legGrad;
+    ctx.fillRect(legLeftX, h / 2, legWidth, legHeight);
+    ctx.fillRect(legRightX, h / 2, legWidth, legHeight);
 
-    this.ctx.fillRect(legLeftX, h / 2, legWidth, legHeight);
-    this.ctx.fillRect(legRightX, h / 2, legWidth, legHeight);
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(legLeftX, h / 2, legWidth, legHeight);
+    ctx.strokeRect(legRightX, h / 2, legWidth, legHeight);
 
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-    this.ctx.lineWidth = 1;
-    this.ctx.strokeRect(legLeftX, h / 2, legWidth, legHeight);
-    this.ctx.strokeRect(legRightX, h / 2, legWidth, legHeight);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(0, h / 2 + 6, w / 2 + 4, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
 
-    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-    this.ctx.beginPath();
-    this.ctx.ellipse(0, h / 2 + 6, w / 2 + 4, 10, 0, 0, Math.PI * 2);
-    this.ctx.fill();
-
-    const frontGrad = this.ctx.createLinearGradient(0, h / 2 - 4, 0, h / 2 + 6);
+    const frontGrad = ctx.createLinearGradient(0, h / 2 - 4, 0, h / 2 + 6);
     frontGrad.addColorStop(0, '#2d221b');
     frontGrad.addColorStop(1, '#17110d');
-    this.ctx.fillStyle = frontGrad;
-    this.ctx.fillRect(-w / 2, h / 2 - 4, w, 10);
+    ctx.fillStyle = frontGrad;
+    ctx.fillRect(-w / 2, h / 2 - 4, w, 10);
 
-    const topGrad = this.ctx.createLinearGradient(-w / 2, -h / 2, w / 2, h / 2);
+    const topGrad = ctx.createLinearGradient(-w / 2, -h / 2, w / 2, h / 2);
     topGrad.addColorStop(0, '#3d2f26');
     topGrad.addColorStop(0.5, '#49392e');
     topGrad.addColorStop(1, '#30241d');
+    ctx.fillStyle = topGrad;
+    ctx.beginPath();
+    ctx.roundRect(-w / 2, -h / 2, w, h, [2, 2, 4, 4]);
+    ctx.fill();
 
-    this.ctx.fillStyle = topGrad;
-    this.ctx.beginPath();
-    this.ctx.roundRect(-w / 2, -h / 2, w, h, [2, 2, 4, 4]);
-    this.ctx.fill();
-
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.035)';
-    this.ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.035)';
+    ctx.lineWidth = 1;
     for (let i = -w / 2 + 12; i < w / 2; i += 28) {
-      this.ctx.beginPath();
-      this.ctx.moveTo(i, -h / 2);
-      this.ctx.lineTo(i + 14, h / 2);
-      this.ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(i, -h / 2);
+      ctx.lineTo(i + 14, h / 2);
+      ctx.stroke();
     }
 
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
-    this.ctx.lineWidth = 1.2;
-    this.ctx.beginPath();
-    this.ctx.moveTo(-w / 2 + 2, -h / 2);
-    this.ctx.lineTo(w / 2 - 2, -h / 2);
-    this.ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-w / 2 + 2, -h / 2);
+    ctx.lineTo(w / 2 - 2, -h / 2);
+    ctx.stroke();
 
+    // Bullseye target (pulses if target is moving)
     const targetX = this.physics.targetOffsetX;
-    this.ctx.save();
-    this.ctx.translate(targetX, -h / 2 + 1);
+    const isMoving = this.physics._targetSpeed > 0;
+    ctx.save();
+    ctx.translate(targetX, -h / 2 + 1);
 
-    this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.7)';
-    this.ctx.lineWidth = 1.5;
-    this.ctx.shadowColor = '#38bdf8';
-    this.ctx.shadowBlur = 8;
+    if (isMoving) {
+      // Pulsing cyan glow for moving target
+      const pulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.006);
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 6 + pulse * 10;
+    }
 
-    this.ctx.beginPath();
-    this.ctx.ellipse(0, 0, 26, 5, 0, 0, Math.PI * 2);
-    this.ctx.stroke();
+    ctx.strokeStyle = 'rgba(56,189,248,0.7)';
+    ctx.lineWidth = 1.5;
+    if (!isMoving) { ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 8; }
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 26, 5, 0, 0, Math.PI * 2);
+    ctx.stroke();
 
-    this.ctx.shadowBlur = 0;
-    this.ctx.fillStyle = '#38bdf8';
-    this.ctx.beginPath();
-    this.ctx.ellipse(0, 0, 3.5, 1.2, 0, 0, Math.PI * 2);
-    this.ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 3.5, 1.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
 
-    this.ctx.restore();
-
-    this.ctx.restore();
+    ctx.restore();
   }
+
+  // ── Trajectory Arc ───────────────────────────────────────────────────────
 
   drawTrajectory() {
     const traj = this.motion.getAimTrajectory();
     if (!traj) return;
 
     const bottle = this.physics.bottle;
-    if (!bottle || !bottle.vertices || bottle.vertices.length < 1) return;
+    if (!bottle?.vertices?.length) return;
 
-    let sumX = 0;
-    let sumY = 0;
-    const verts = bottle.vertices;
-    for (let i = 0; i < verts.length; i++) {
-      sumX += verts[i].x;
-      sumY += verts[i].y;
-    }
-    const geomX = sumX / verts.length;
-    const geomY = sumY / verts.length;
+    let cx = 0, cy = 0;
+    for (const v of bottle.vertices) { cx += v.x; cy += v.y; }
+    cx /= bottle.vertices.length; cy /= bottle.vertices.length;
 
-    let currX = geomX;
-    let currY = geomY;
-    let vx = traj.vx;
-    let vy = traj.vy;
-    const gravity = 1.5 * 0.001 * (1000 / 60);
+    let currX = cx, currY = cy;
+    let vx = traj.vx, vy = traj.vy;
 
-    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+    // Gravity from actual engine values
+    const g = this.physics.engine.gravity;
+    const gravStep = g.y * g.scale * (1000 / 60) * (1000 / 60);
+
+    this.ctx.fillStyle = 'rgba(255,255,255,0.75)';
     for (let i = 0; i < 26; i++) {
       currX += vx * 1.8;
       currY += vy * 1.8;
-      vy += gravity * 20;
-
+      vy += gravStep * 20;
       const radius = Math.max(1.2, 3.8 - i * 0.1);
       this.ctx.beginPath();
       this.ctx.arc(currX, currY, radius, 0, Math.PI * 2);
@@ -211,38 +242,108 @@ export class GameRenderer {
     }
   }
 
-  drawCleanBottle() {
+  // ── Power Meter ──────────────────────────────────────────────────────────
+
+  drawPowerMeter() {
+    const power = this.motion.getPowerPercent();
+    if (power === null) return;
+
     const bottle = this.physics.bottle;
-    if (!bottle || !bottle.vertices || bottle.vertices.length < 1) return;
+    if (!bottle?.vertices?.length) return;
 
-    // Calculate exact geometric centroid across ALL body vertices
-    let sumX = 0;
-    let sumY = 0;
-    const verts = bottle.vertices;
-    for (let i = 0; i < verts.length; i++) {
-      sumX += verts[i].x;
-      sumY += verts[i].y;
-    }
-    const geomX = sumX / verts.length;
-    const geomY = sumY / verts.length;
+    let cx = 0, cy = 0;
+    for (const v of bottle.vertices) { cx += v.x; cy += v.y; }
+    cx /= bottle.vertices.length; cy /= bottle.vertices.length;
+
+    const ctx = this.ctx;
+    const radius = 30;
+    const startAngle = -Math.PI / 2;
+    const endAngle = startAngle + (Math.PI * 2 * power);
+
+    // Background ring
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Power arc — green → yellow → red
+    const hue = Math.round(120 - power * 120);
+    ctx.strokeStyle = `hsl(${hue}, 85%, 55%)`;
+    ctx.lineWidth = 3.5;
+    ctx.shadowColor = `hsl(${hue}, 85%, 55%)`;
+    ctx.shadowBlur = 8;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, startAngle, endAngle);
+    ctx.stroke();
+
+    // Power % label
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = `hsl(${hue}, 85%, 70%)`;
+    ctx.font = `bold 10px "Space Grotesk", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${Math.round(power * 100)}%`, cx, cy + radius + 14);
+
+    ctx.restore();
+  }
+
+  // ── Wind Indicator ───────────────────────────────────────────────────────
+
+  drawWindIndicator() {
+    const wind = this.physics.windForce;
+    if (!wind || Math.abs(wind) < 0.1) return;
+
+    const ctx = this.ctx;
+    const intensity = Math.min(1, Math.abs(wind) / 4);
+    const dir = wind > 0 ? 1 : -1;
+
+    ctx.save();
+    ctx.globalAlpha = 0.55 + 0.3 * intensity;
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = `600 11px "Plus Jakarta Sans", sans-serif`;
+    ctx.textAlign = dir > 0 ? 'left' : 'right';
+    ctx.textBaseline = 'top';
+    const arrows = dir > 0 ? '→ → →'.slice(0, 1 + Math.round(intensity * 4)) : '← ← ←'.slice(0, 1 + Math.round(intensity * 4));
+    ctx.fillText(`WIND ${arrows}`, dir > 0 ? 16 : this.width - 16, this.height - 130);
+    ctx.restore();
+  }
+
+  // ── Bottle ────────────────────────────────────────────────────────────────
+
+  drawCleanBottle(skin) {
+    const bottle = this.physics.bottle;
+    if (!bottle?.vertices?.length) return;
+
+    const ctx = this.ctx;
+    let cx = 0, cy = 0;
+    for (const v of bottle.vertices) { cx += v.x; cy += v.y; }
+    cx /= bottle.vertices.length; cy /= bottle.vertices.length;
+
     const angle = bottle.angle;
-
     const w = 34;
     const h = 112;
 
-    this.ctx.save();
-    this.ctx.translate(geomX, geomY);
-    this.ctx.rotate(angle);
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
 
-    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-    this.ctx.beginPath();
-    this.ctx.ellipse(0, h / 2 + 2, w / 2 - 2, 4, 0, 0, Math.PI * 2);
-    this.ctx.fill();
+    // Skin glow
+    if (skin?.glow) {
+      ctx.shadowColor = skin.glow;
+      ctx.shadowBlur = 14;
+    }
 
-    const capW = 15;
-    const capH = 12;
-    const neckW = 13;
-    const neckH = 10;
+    // Drop shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(0, h / 2 + 2, w / 2 - 2, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    const capW = 15, capH = 12, neckW = 13, neckH = 10;
     const shoulderY = -h / 2 + capH + neckH;
     const baseY = h / 2;
 
@@ -256,179 +357,156 @@ export class GameRenderer {
       this.sloshVelocity *= 0.85;
       this.sloshAngle += this.sloshVelocity;
 
-      this.ctx.save();
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(-w / 2 + 2, shoulderY + 2, w - 4, baseY - shoulderY - 8, [0, 0, 6, 6]);
+      ctx.clip();
 
-      this.ctx.beginPath();
-      this.ctx.roundRect(-w / 2 + 2, shoulderY + 2, w - 4, baseY - shoulderY - 8, [0, 0, 6, 6]);
-      this.ctx.clip();
+      const liq = skin?.liquidGrad || ['rgba(56,189,248,0.35)', 'rgba(14,165,233,0.50)', 'rgba(2,132,199,0.65)'];
+      const liquidGrad = ctx.createLinearGradient(0, liquidTopY, 0, baseY);
+      liquidGrad.addColorStop(0, liq[0]);
+      liquidGrad.addColorStop(0.5, liq[1]);
+      liquidGrad.addColorStop(1, liq[2]);
 
-      const liquidGrad = this.ctx.createLinearGradient(0, liquidTopY, 0, baseY);
-      liquidGrad.addColorStop(0, 'rgba(56, 189, 248, 0.35)');
-      liquidGrad.addColorStop(0.5, 'rgba(14, 165, 233, 0.50)');
-      liquidGrad.addColorStop(1, 'rgba(2, 132, 199, 0.65)');
-
-      this.ctx.fillStyle = liquidGrad;
-      this.ctx.beginPath();
-      this.ctx.moveTo(-w, baseY + 10);
-      this.ctx.lineTo(-w, liquidTopY + Math.sin(this.sloshAngle) * 5);
-      this.ctx.bezierCurveTo(
+      ctx.fillStyle = liquidGrad;
+      ctx.beginPath();
+      ctx.moveTo(-w, baseY + 10);
+      ctx.lineTo(-w, liquidTopY + Math.sin(this.sloshAngle) * 5);
+      ctx.bezierCurveTo(
         -w / 4, liquidTopY + Math.sin(this.sloshAngle + 1) * 4,
         w / 4, liquidTopY - Math.sin(this.sloshAngle + 1) * 4,
         w, liquidTopY - Math.sin(this.sloshAngle) * 5
       );
-      this.ctx.lineTo(w, baseY + 10);
-      this.ctx.closePath();
-      this.ctx.fill();
+      ctx.lineTo(w, baseY + 10);
+      ctx.closePath();
+      ctx.fill();
 
-      this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
-      this.ctx.lineWidth = 1.2;
-      this.ctx.stroke();
+      ctx.strokeStyle = skin?.liquidSurface || 'rgba(255,255,255,0.65)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
 
-      this.ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
       this.bubbles.forEach((b) => {
         b.y -= b.speed;
         if (b.y < -liquidHeight / 2) b.y = liquidHeight / 2;
-
         const bx = b.x + Math.sin(b.offset + Date.now() * 0.002) * 2;
         const by = baseY - 12 - (b.y + liquidHeight / 2);
         if (by > liquidTopY + 4 && by < baseY - 4) {
-          this.ctx.beginPath();
-          this.ctx.arc(bx, by, b.r, 0, Math.PI * 2);
-          this.ctx.fill();
+          ctx.beginPath();
+          ctx.arc(bx, by, b.r, 0, Math.PI * 2);
+          ctx.fill();
         }
       });
-
-      this.ctx.restore();
+      ctx.restore();
     }
 
-    const glassGrad = this.ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
-    glassGrad.addColorStop(0, 'rgba(255, 255, 255, 0.28)');
-    glassGrad.addColorStop(0.2, 'rgba(255, 255, 255, 0.08)');
-    glassGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.03)');
-    glassGrad.addColorStop(0.8, 'rgba(255, 255, 255, 0.08)');
-    glassGrad.addColorStop(1, 'rgba(255, 255, 255, 0.25)');
+    // Glass body
+    const ga = skin?.glassAlpha || [0.28, 0.08, 0.03, 0.08, 0.25];
+    const glassGrad = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
+    glassGrad.addColorStop(0, `rgba(255,255,255,${ga[0]})`);
+    glassGrad.addColorStop(0.2, `rgba(255,255,255,${ga[1]})`);
+    glassGrad.addColorStop(0.5, `rgba(255,255,255,${ga[2]})`);
+    glassGrad.addColorStop(0.8, `rgba(255,255,255,${ga[3]})`);
+    glassGrad.addColorStop(1, `rgba(255,255,255,${ga[4]})`);
 
-    this.ctx.fillStyle = glassGrad;
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-    this.ctx.lineWidth = 1.2;
+    const borderA = skin?.borderAlpha ?? 0.45;
+    ctx.fillStyle = glassGrad;
+    ctx.strokeStyle = `rgba(255,255,255,${borderA})`;
+    ctx.lineWidth = 1.2;
 
-    this.ctx.beginPath();
-    this.ctx.moveTo(-neckW / 2, shoulderY);
-    this.ctx.lineTo(-w / 2 + 3, shoulderY + 8);
-    this.ctx.lineTo(-w / 2 + 1, baseY - 6);
-    this.ctx.quadraticCurveTo(-w / 2 + 1, baseY - 1, -w / 2 + 6, baseY - 1);
-    this.ctx.lineTo(w / 2 - 6, baseY - 1);
-    this.ctx.quadraticCurveTo(w / 2 - 1, baseY - 1, w / 2 - 1, baseY - 6);
-    this.ctx.lineTo(w / 2 - 3, shoulderY + 8);
-    this.ctx.lineTo(neckW / 2, shoulderY);
-    this.ctx.closePath();
+    ctx.beginPath();
+    ctx.moveTo(-neckW / 2, shoulderY);
+    ctx.lineTo(-w / 2 + 3, shoulderY + 8);
+    ctx.lineTo(-w / 2 + 1, baseY - 6);
+    ctx.quadraticCurveTo(-w / 2 + 1, baseY - 1, -w / 2 + 6, baseY - 1);
+    ctx.lineTo(w / 2 - 6, baseY - 1);
+    ctx.quadraticCurveTo(w / 2 - 1, baseY - 1, w / 2 - 1, baseY - 6);
+    ctx.lineTo(w / 2 - 3, shoulderY + 8);
+    ctx.lineTo(neckW / 2, shoulderY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
 
-    this.ctx.fill();
-    this.ctx.stroke();
+    // Label
+    const labelH = 20, labelY = 0;
+    ctx.save();
+    const labelCol = skin?.labelColor || '#ffffff';
+    const labelGrad = ctx.createLinearGradient(-w / 2, labelY, w / 2, labelY);
+    labelGrad.addColorStop(0, 'rgba(255,255,255,0.15)');
+    labelGrad.addColorStop(0.5, 'rgba(255,255,255,0.25)');
+    labelGrad.addColorStop(1, 'rgba(255,255,255,0.15)');
+    ctx.fillStyle = labelGrad;
+    ctx.fillRect(-w / 2 + 1, labelY - labelH / 2, w - 2, labelH);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 0.8;
+    ctx.strokeRect(-w / 2 + 1, labelY - labelH / 2, w - 2, labelH);
+    ctx.fillStyle = labelCol;
+    ctx.font = '600 7px "Space Grotesk", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // Manual letter-spacing (non-standard ctx.letterSpacing avoided)
+    const word = 'PURE';
+    const gap = 3.5;
+    const totalW = (word.length - 1) * gap;
+    let lx = -totalW / 2;
+    for (const ch of word) { ctx.fillText(ch, lx, labelY); lx += gap; }
+    ctx.restore();
 
-    const labelH = 20;
-    const labelY = 0;
-    this.ctx.save();
+    // Neck
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(-neckW / 2 + 1, -h / 2 + capH, neckW - 2, neckH);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-neckW / 2 + 1, -h / 2 + capH, neckW - 2, neckH);
 
-    const labelGrad = this.ctx.createLinearGradient(-w / 2, labelY, w / 2, labelY);
-    labelGrad.addColorStop(0, 'rgba(255, 255, 255, 0.15)');
-    labelGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.25)');
-    labelGrad.addColorStop(1, 'rgba(255, 255, 255, 0.15)');
+    // Cap
+    const cap = skin?.capGrad || ['#1e293b', '#334155', '#0f172a'];
+    const capGrad = ctx.createLinearGradient(-capW / 2, 0, capW / 2, 0);
+    capGrad.addColorStop(0, cap[0]);
+    capGrad.addColorStop(0.5, cap[1]);
+    capGrad.addColorStop(1, cap[2]);
+    ctx.fillStyle = capGrad;
+    ctx.beginPath();
+    ctx.roundRect(-capW / 2, -h / 2, capW, capH, 3);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-capW / 2, -h / 2, capW, capH);
 
-    this.ctx.fillStyle = labelGrad;
-    this.ctx.fillRect(-w / 2 + 1, labelY - labelH / 2, w - 2, labelH);
+    // Highlight streak
+    ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(-w / 2 + 4, shoulderY + 10);
+    ctx.lineTo(-w / 2 + 4, baseY - 8);
+    ctx.stroke();
 
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-    this.ctx.lineWidth = 0.8;
-    this.ctx.strokeRect(-w / 2 + 1, labelY - labelH / 2, w - 2, labelH);
-
-    this.ctx.fillStyle = '#ffffff';
-    this.ctx.font = '600 7px "Space Grotesk", sans-serif';
-    this.ctx.textAlign = 'center';
-    this.ctx.textBaseline = 'middle';
-    this.ctx.letterSpacing = '1px';
-    this.ctx.fillText('PURE', 0, labelY);
-
-    this.ctx.restore();
-
-    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-    this.ctx.fillRect(-neckW / 2 + 1, -h / 2 + capH, neckW - 2, neckH);
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-    this.ctx.lineWidth = 1;
-    this.ctx.strokeRect(-neckW / 2 + 1, -h / 2 + capH, neckW - 2, neckH);
-
-    const capGrad = this.ctx.createLinearGradient(-capW / 2, 0, capW / 2, 0);
-    capGrad.addColorStop(0, '#1e293b');
-    capGrad.addColorStop(0.5, '#334155');
-    capGrad.addColorStop(1, '#0f172a');
-
-    this.ctx.fillStyle = capGrad;
-    this.ctx.beginPath();
-    this.ctx.roundRect(-capW / 2, -h / 2, capW, capH, 3);
-    this.ctx.fill();
-
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-    this.ctx.lineWidth = 1;
-    this.ctx.strokeRect(-capW / 2, -h / 2, capW, capH);
-
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
-    this.ctx.lineWidth = 1.8;
-    this.ctx.beginPath();
-    this.ctx.moveTo(-w / 2 + 4, shoulderY + 10);
-    this.ctx.lineTo(-w / 2 + 4, baseY - 8);
-    this.ctx.stroke();
-
-    this.ctx.restore();
+    ctx.restore();
   }
 
+  // ── Landing Effects ──────────────────────────────────────────────────────
+
   triggerLandingParticles(x, y, isUpright, combo = 1) {
-    const count = isUpright ? 22 : 14;
-    for (let i = 0; i < count; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const speed = Math.random() * 5 + 2;
-      this.particles.push({
-        x, y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 1.2,
-        radius: Math.random() * 3 + 1.5,
-        color: isUpright ? (Math.random() > 0.5 ? '#38bdf8' : '#fbbf24') : '#f43f5e',
-        alpha: 1.0
-      });
+    this.effects.triggerLandingBurst(x, y, isUpright, combo);
+
+    if (isUpright) {
+      // Ripple on the table surface
+      const tablePos = this.physics.table?.position;
+      if (tablePos) this.effects.triggerRipple(x, tablePos.y - 8);
     }
 
     if (isUpright && combo >= 2) {
       try {
         confetti({
-          particleCount: Math.min(75, 25 + combo * 12),
+          particleCount: Math.min(80, 25 + combo * 12),
           spread: 65,
           origin: { x: x / this.width, y: y / this.height }
         });
-      } catch (e) {
-        // Fallback
-      }
+      } catch (_) {}
     }
   }
 
-  updateAndDrawParticles() {
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const p = this.particles[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vy += 0.14;
-      p.alpha -= 0.025;
-
-      if (p.alpha <= 0) {
-        this.particles.splice(i, 1);
-        continue;
-      }
-
-      this.ctx.save();
-      this.ctx.globalAlpha = p.alpha;
-      this.ctx.fillStyle = p.color;
-      this.ctx.beginPath();
-      this.ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-      this.ctx.fill();
-      this.ctx.restore();
-    }
+  triggerScreenShake(intensity = 12) {
+    this.effects.triggerShake(intensity);
   }
 }

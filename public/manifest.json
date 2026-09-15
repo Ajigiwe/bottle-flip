@@ -1,0 +1,24 @@
+{
+  "name": "Flip Pure",
+  "short_name": "Flip Pure",
+  "description": "Physics-based bottle flip game with timed blitz mode, achievements, skins and leaderboard.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050810",
+  "theme_color": "#0d121f",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%230d121f'/><g stroke='%2338bdf8' stroke-width='8' fill='none' stroke-linecap='round' stroke-linejoin='round' transform='translate(48,20) scale(4)'><path d='M9 3h6v3H9z'/><path d='M10 6v3l-2 2v10a1 1 0 001 1h6a1 1 0 001-1V11l-2-2V6'/><path d='M8 15h8'/></g></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='100' fill='%230d121f'/><g stroke='%2338bdf8' stroke-width='20' fill='none' stroke-linecap='round' stroke-linejoin='round' transform='translate(128,50) scale(10.5)'><path d='M9 3h6v3H9z'/><path d='M10 6v3l-2 2v10a1 1 0 001 1h6a1 1 0 001-1V11l-2-2V6'/><path d='M8 15h8'/></g></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
