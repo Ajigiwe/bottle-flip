@@ -323,8 +323,8 @@ export class GameRenderer {
     cx /= bottle.vertices.length; cy /= bottle.vertices.length;
 
     const angle = bottle.angle;
-    const w = 34;
-    const h = 112;
+    const w = this.physics.bottleWidth || 46;
+    const h = this.physics.bottleHeight || 100;
 
     ctx.save();
     ctx.translate(cx, cy);
@@ -343,7 +343,7 @@ export class GameRenderer {
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    const capW = 15, capH = 12, neckW = 13, neckH = 10;
+    const capW = Math.round(w * 0.42), capH = 12, neckW = Math.round(w * 0.36), neckH = 10;
     const shoulderY = -h / 2 + capH + neckH;
     const baseY = h / 2;
 

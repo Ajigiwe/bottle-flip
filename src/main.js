@@ -274,14 +274,14 @@ class BottleFlipGame {
   startNewGame() {
     this.score = 0;
     this.streak = 0;
-    this.lives = 3;
+    this.totalFlips = 0;
     this.timeLeft = TIMED_DURATION;
     this.gameActive = true;
 
     this.scoreVal.textContent = '0';
     this.streakVal.textContent = '0';
     this.streakCard.classList.remove('active-streak');
-    this.updateLivesDisplay();
+    this.updateFlipsDisplay();
     this.achievements.resetSession();
     this.physics.resetDifficulty();
 
@@ -351,11 +351,9 @@ class BottleFlipGame {
     if (this.sensitivityDisplay) this.sensitivityDisplay.textContent = `Lvl ${v} (${desc})`;
   }
 
-  updateLivesDisplay() {
+  updateFlipsDisplay() {
     if (!this.livesVal) return;
-    let display = '';
-    for (let i = 0; i < 3; i++) display += i < this.lives ? '❤️' : '🖤';
-    this.livesVal.textContent = display;
+    this.livesVal.textContent = `${this.totalFlips || 0}`;
   }
 
   // ── Game Initialisation ───────────────────────────────────────────────────
@@ -384,6 +382,8 @@ class BottleFlipGame {
 
   handleThrowTriggered(type) {
     this.hintOverlay?.classList.add('hidden');
+    this.totalFlips++;
+    this.updateFlipsDisplay();
   }
 
   // ── Landing Result ────────────────────────────────────────────────────────
@@ -457,23 +457,8 @@ class BottleFlipGame {
       this.renderer.triggerScreenShake(10);
       this.renderer.triggerLandingParticles(bottlePos.x, bottlePos.y, false, 0);
 
-      if (this.gameMode === GameMode.LIVES) {
-        this.lives = Math.max(0, this.lives - 1);
-        this.updateLivesDisplay();
-
-        if (this.lives <= 0) {
-          this.gameActive = false;
-          this.showToast('💀 GAME OVER', 'No lives remaining!', true);
-          setTimeout(() => this._triggerGameOver(), 1500);
-        } else {
-          this.showToast('❌ MISSED', `${this.lives} ${this.lives === 1 ? 'life' : 'lives'} left`, true);
-          setTimeout(() => this.resetBottle(), 1500);
-        }
-      } else {
-        // Timed mode — no lives penalty, just reset
-        this.showToast('❌ MISSED', 'Keep going!', true);
-        setTimeout(() => this.resetBottle(), 1200);
-      }
+      this.showToast('❌ MISSED', 'Keep trying!', true);
+      setTimeout(() => this.resetBottle(), 1200);
     }
   }
 

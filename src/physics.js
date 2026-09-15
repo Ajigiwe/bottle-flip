@@ -22,10 +22,10 @@ export class PhysicsWorld {
     this.rightWall = null;
     this.ground = null;
 
-    this.bottleWidth = 34;
-    this.bottleHeight = 112;
+    this.bottleWidth = 46;
+    this.bottleHeight = 100;
 
-    this.uprightTolerance = 0.32; // ~18.3 degrees
+    this.uprightTolerance = 0.45; // ~25.8 degrees forgiving landing window
     this.settleTimer = 0;
     this.flightTime = 0;
 
@@ -130,15 +130,15 @@ export class PhysicsWorld {
     const bottleY = tablePos.y - platformHeight / 2 - this.bottleHeight / 2;
 
     this.bottle = Bodies.rectangle(bottleX, bottleY, this.bottleWidth, this.bottleHeight, {
-      chamfer: { radius: [4, 4, 10, 10] },
-      friction: 0.92,
-      frictionAir: 0.0018,
-      restitution: 0.22,
-      density: 0.0022,
+      chamfer: { radius: [6, 6, 2, 2] }, // Flat bottom base (2px) so bottle stands stable on surface
+      friction: 0.95,
+      frictionAir: 0.0015,
+      restitution: 0.08, // Low bounciness absorbs impact smoothly on landing
+      density: 0.0024,
       label: 'bottle'
     });
 
-    Body.setInertia(this.bottle, 3400);
+    Body.setInertia(this.bottle, 4500);
     this.updateCenterOfMass();
 
     const tableTopY = tablePos.y - platformHeight / 2;
@@ -232,6 +232,17 @@ export class PhysicsWorld {
       } else {
         this.settleTimer = 0;
         this.state = linearSpeed > 0.6 ? 'FLIGHT' : 'SETTLING';
+      }
+
+      // Self-righting liquid pendulum assist when settling near upright
+      if (this.state === 'SETTLING' && this.bottle) {
+        const rawAngle = this.bottle.angle;
+        const twoPi = Math.PI * 2;
+        const normAngle = ((rawAngle % twoPi) + twoPi) % twoPi;
+        const tilt = normAngle > Math.PI ? normAngle - twoPi : normAngle;
+        if (Math.abs(tilt) < 0.55 && Math.abs(this.bottle.angularVelocity) < 0.15) {
+          Body.setAngularVelocity(this.bottle, this.bottle.angularVelocity * 0.84 - tilt * 0.022);
+        }
       }
 
       // Out-of-bounds check (walls now exist but top/bottom still relevant)
