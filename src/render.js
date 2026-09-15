@@ -506,6 +506,17 @@ export class GameRenderer {
     }
   }
 
+  triggerCapConfetti(x, y) {
+    try {
+      confetti({
+        particleCount: 120,
+        spread: 110,
+        origin: { x: x / this.width, y: y / this.height },
+        colors: ['#ffd700', '#ff007f', '#00e5ff', '#ffffff', '#764ba2']
+      });
+    } catch (_) {}
+  }
+
   triggerScreenShake(intensity = 12) {
     this.effects.triggerShake(intensity);
   }

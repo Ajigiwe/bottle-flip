@@ -202,7 +202,9 @@ export class PhysicsWorld {
     const angle = this.bottle.angle;
     const twoPi = Math.PI * 2;
     const norm = ((angle % twoPi) + twoPi) % twoPi;
-    return norm < this.uprightTolerance || norm > twoPi - this.uprightTolerance;
+    const isUprightBase = norm < this.uprightTolerance || norm > twoPi - this.uprightTolerance;
+    const isHeadstand = Math.abs(norm - Math.PI) < this.uprightTolerance;
+    return isUprightBase || isHeadstand;
   }
 
   // ── Per-Frame Update ──────────────────────────────────────────────────────
@@ -236,12 +238,12 @@ export class PhysicsWorld {
       const upright = this.isCurrentlyUpright();
 
       // DAMP ROTATIONAL ROCKING ON TOUCHDOWN:
-      // When bottle is upright and near table/ground height, heavily damp angular velocity so it stays upright
+      // When bottle is upright or headstand and near table/ground height, damp angular velocity so it stays balanced
       if (upright && this.bottle && this.bottle.position.y > this.table.position.y - 120) {
         Body.setAngularVelocity(this.bottle, this.bottle.angularVelocity * 0.65);
       }
 
-      // Fast landing lock: if upright, register landing in ~80ms before it can tip
+      // Fast landing lock: if upright/headstand, register landing in ~80ms before it can tip
       const maxLinear = upright ? 1.6 : 0.35;
       const maxAngular = upright ? 0.30 : 0.06;
       const requiredSettleTime = upright ? 80 : 260;
@@ -254,7 +256,7 @@ export class PhysicsWorld {
         this.state = linearSpeed > 0.6 ? 'FLIGHT' : 'SETTLING';
       }
 
-      // Self-righting liquid pendulum assist when settling near upright
+      // Self-righting pendulum assist when settling near upright
       if (this.state === 'SETTLING' && this.bottle) {
         const rawAngle = this.bottle.angle;
         const twoPi = Math.PI * 2;
@@ -282,9 +284,12 @@ export class PhysicsWorld {
     const twoPi = Math.PI * 2;
     const normalizedAngle = ((angle % twoPi) + twoPi) % twoPi;
 
-    const isUpright =
+    const isUprightBase =
       normalizedAngle < this.uprightTolerance ||
       normalizedAngle > twoPi - this.uprightTolerance;
+
+    const isHeadstand = Math.abs(normalizedAngle - Math.PI) < this.uprightTolerance;
+    const isUpright = isUprightBase || isHeadstand;
 
     const bottlePos = this.bottle.position;
     const tablePos = this.table.position;
@@ -293,7 +298,7 @@ export class PhysicsWorld {
     const isOnTable =
       isUpright &&
       Math.abs(bottlePos.x - tablePos.x) < tableWidth / 2 + 25 &&
-      bottlePos.y < tablePos.y + 20;
+      bottlePos.y < tablePos.y + 25;
 
     const targetX = tablePos.x + this.targetOffsetX;
     const isTargetHit = isOnTable && Math.abs(bottlePos.x - targetX) < 48;
@@ -329,6 +334,7 @@ export class PhysicsWorld {
       if (this.onLandingCallback) {
         this.onLandingCallback({
           isUpright: true,
+          isHeadstand,
           isTable: isOnTable,
           isTarget: isTargetHit,
           isOnGround,

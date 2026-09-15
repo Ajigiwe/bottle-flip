@@ -62,6 +62,13 @@ export const ACHIEVEMENTS = [
     icon: '⚡',
     check: (s) => s.completedTimedMode,
   },
+  {
+    id: 'cap_landing',
+    name: 'Cap Master',
+    desc: 'Land upside down on the bottle cap',
+    icon: '👑',
+    check: (s) => s.hasCapLanding,
+  },
 ];
 
 export class AchievementSystem {

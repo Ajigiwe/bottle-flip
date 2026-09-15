@@ -397,13 +397,16 @@ class BottleFlipGame {
       this.streak++;
       this._totalLandings++;
       const isBullseye = result.isTarget;
+      const isHeadstand = result.isHeadstand;
       if (isBullseye) this._totalBullseyes++;
+      if (isHeadstand) this._hasCapLanding = true;
       this._maxStreak = Math.max(this._maxStreak, this.streak);
 
       this._saveStats();
 
       const multiplier = Math.min(this.streak, 5);
-      const points = (isBullseye ? 150 : 50) * multiplier;
+      const basePoints = isHeadstand ? 500 : (isBullseye ? 150 : 50);
+      const points = basePoints * multiplier;
       this.score += points;
 
       if (this.score > this.bestScore) {
@@ -419,19 +422,22 @@ class BottleFlipGame {
       if (this.difficultyVal) this.difficultyVal.textContent = `D${this.physics.difficulty}`;
 
       // Audio
-      if (isBullseye) {
+      if (isHeadstand || isBullseye) {
         soundManager.playBullseye();
       } else {
         soundManager.playSuccess(this.streak);
       }
-      if (this.streak >= 3) soundManager.playCrowdCheer(Math.min(this.streak, 5));
+      if (this.streak >= 3 || isHeadstand) soundManager.playCrowdCheer(5);
       soundManager.vibrateStreak(this.streak);
 
       // Visuals
       this.renderer.triggerLandingParticles(bottlePos.x, bottlePos.y, true, this.streak);
+      if (isHeadstand) {
+        this.renderer.triggerCapConfetti(bottlePos.x, bottlePos.y);
+      }
 
-      const title = isBullseye ? '🎯 BULLSEYE!' : (this.streak >= 3 ? '🔥 ON FIRE!' : '✅ PERFECT LANDING!');
-      const sub = `+${points} PTS • STREAK x${this.streak}${result.difficulty > 0 ? ` • D${result.difficulty}` : ''}`;
+      const title = isHeadstand ? '👑 CAP LANDING!' : (isBullseye ? '🎯 BULLSEYE!' : (this.streak >= 3 ? '🔥 ON FIRE!' : '✅ PERFECT LANDING!'));
+      const sub = `+${points} PTS • ${isHeadstand ? 'LEGENDARY HEADSTAND! ' : ''}STREAK x${this.streak}${result.difficulty > 0 ? ` • D${result.difficulty}` : ''}`;
       this.showToast(title, sub, false);
 
       // Achievements
@@ -440,6 +446,7 @@ class BottleFlipGame {
         totalBullseyes: this._totalBullseyes,
         maxStreak: this._maxStreak,
         sessionScore: this.score,
+        hasCapLanding: this._hasCapLanding,
       });
       newAch.forEach(a => this._showAchievementToast(a));
 
