@@ -226,16 +226,13 @@ export class GameRenderer {
     let currX = cx, currY = cy;
     let vx = traj.vx, vy = traj.vy;
 
-    // Gravity from actual engine values
-    const g = this.physics.engine.gravity;
-    const gravStep = g.y * g.scale * (1000 / 60) * (1000 / 60);
-
-    this.ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    for (let i = 0; i < 26; i++) {
-      currX += vx * 1.8;
-      currY += vy * 1.8;
-      vy += gravStep * 20;
-      const radius = Math.max(1.2, 3.8 - i * 0.1);
+    // Realistic parabolic trajectory step matching Matter.js physics
+    this.ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    for (let i = 0; i < 24; i++) {
+      currX += vx * 1.5;
+      currY += vy * 1.5;
+      vy += 0.28; // Realistic physics gravity step
+      const radius = Math.max(1.2, 3.6 - i * 0.1);
       this.ctx.beginPath();
       this.ctx.arc(currX, currY, radius, 0, Math.PI * 2);
       this.ctx.fill();

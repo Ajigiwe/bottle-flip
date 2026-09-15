@@ -315,18 +315,22 @@ export class PhysicsWorld {
     const bottlePos = this.bottle.position;
     const tablePos = this.table.position;
     const tableWidth = this.table.customData?.width || 600;
+    const platformHeight = this.table.customData?.height || 20;
+    const tableTopY = tablePos.y - platformHeight / 2;
 
-    const isOnTable =
-      isUpright &&
-      Math.abs(bottlePos.x - tablePos.x) < tableWidth / 2 + 25 &&
-      bottlePos.y < tablePos.y + 25;
+    // Strict Table Surface Bounds:
+    // 1. Must be horizontally INSIDE table edges (not stuck to or leaning on side walls/bumpers!)
+    const isHorizontallyOnTable = Math.abs(bottlePos.x - tablePos.x) <= (tableWidth / 2 - 8);
+
+    // 2. Must be resting ON TOP of the table surface
+    const isVerticallyOnTable = bottlePos.y < tableTopY + 10 && bottlePos.y > tableTopY - this.bottleHeight - 15;
+
+    const isOnTable = isUpright && isHorizontallyOnTable && isVerticallyOnTable;
 
     const targetX = tablePos.x + this.targetOffsetX;
     const isTargetHit = isOnTable && Math.abs(bottlePos.x - targetX) < 48;
 
-    const isOnGround = isUpright && bottlePos.y >= this.height - 120;
-
-    if (isUpright && (isOnTable || isOnGround)) {
+    if (isOnTable) {
       this.state = 'LANDED';
       
       // Freeze bottle in position so it never wobbles or falls after landing
