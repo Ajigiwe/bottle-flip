@@ -197,6 +197,14 @@ export class PhysicsWorld {
     });
   }
 
+  isCurrentlyUpright() {
+    if (!this.bottle) return false;
+    const angle = this.bottle.angle;
+    const twoPi = Math.PI * 2;
+    const norm = ((angle % twoPi) + twoPi) % twoPi;
+    return norm < this.uprightTolerance || norm > twoPi - this.uprightTolerance;
+  }
+
   // ── Per-Frame Update ──────────────────────────────────────────────────────
 
   update(deltaTime = 1000 / 60) {
@@ -225,10 +233,22 @@ export class PhysicsWorld {
 
       const linearSpeed = Vector.magnitude(this.bottle.velocity);
       const angularSpeed = Math.abs(this.bottle.angularVelocity);
+      const upright = this.isCurrentlyUpright();
 
-      if (linearSpeed < 0.35 && angularSpeed < 0.06 && this.flightTime > 300) {
+      // DAMP ROTATIONAL ROCKING ON TOUCHDOWN:
+      // When bottle is upright and near table/ground height, heavily damp angular velocity so it stays upright
+      if (upright && this.bottle && this.bottle.position.y > this.table.position.y - 120) {
+        Body.setAngularVelocity(this.bottle, this.bottle.angularVelocity * 0.65);
+      }
+
+      // Fast landing lock: if upright, register landing in ~80ms before it can tip
+      const maxLinear = upright ? 1.6 : 0.35;
+      const maxAngular = upright ? 0.30 : 0.06;
+      const requiredSettleTime = upright ? 80 : 260;
+
+      if (linearSpeed < maxLinear && angularSpeed < maxAngular && this.flightTime > 180) {
         this.settleTimer += deltaTime;
-        if (this.settleTimer > 350) this.evaluateLanding();
+        if (this.settleTimer > requiredSettleTime) this.evaluateLanding();
       } else {
         this.settleTimer = 0;
         this.state = linearSpeed > 0.6 ? 'FLIGHT' : 'SETTLING';
@@ -240,8 +260,8 @@ export class PhysicsWorld {
         const twoPi = Math.PI * 2;
         const normAngle = ((rawAngle % twoPi) + twoPi) % twoPi;
         const tilt = normAngle > Math.PI ? normAngle - twoPi : normAngle;
-        if (Math.abs(tilt) < 0.55 && Math.abs(this.bottle.angularVelocity) < 0.15) {
-          Body.setAngularVelocity(this.bottle, this.bottle.angularVelocity * 0.84 - tilt * 0.022);
+        if (Math.abs(tilt) < 0.55) {
+          Body.setAngularVelocity(this.bottle, this.bottle.angularVelocity * 0.80 - tilt * 0.035);
         }
       }
 
@@ -272,8 +292,8 @@ export class PhysicsWorld {
 
     const isOnTable =
       isUpright &&
-      Math.abs(bottlePos.x - tablePos.x) < tableWidth / 2 + 15 &&
-      bottlePos.y < tablePos.y + 10;
+      Math.abs(bottlePos.x - tablePos.x) < tableWidth / 2 + 25 &&
+      bottlePos.y < tablePos.y + 20;
 
     const targetX = tablePos.x + this.targetOffsetX;
     const isTargetHit = isOnTable && Math.abs(bottlePos.x - targetX) < 48;
