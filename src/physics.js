@@ -362,7 +362,7 @@ export class PhysicsWorld {
           isHeadstand,
           isTable: isOnTable,
           isTarget: isTargetHit,
-          isOnGround,
+          isOnGround: false,
           accuracy: Math.abs(bottlePos.x - targetX),
           difficulty: this.difficulty,
         });
