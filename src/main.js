@@ -611,8 +611,10 @@ class BottleFlipGame {
   }
 }
 
-// Register Service Worker for PWA offline caching
-if ('serviceWorker' in navigator) {
+// Register Service Worker for PWA offline caching.
+// In dev (`vite` serves source directly, no build) skip entirely — dev URLs
+// (/src/*.js) are not the hashed production assets the SW precaches.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   });
