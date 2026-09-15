@@ -461,7 +461,6 @@ class BottleFlipGame {
       this.streakCard.classList.remove('active-streak');
 
       soundManager.playCrash(1.5);
-      this.renderer.triggerScreenShake(10);
       this.renderer.triggerLandingParticles(bottlePos.x, bottlePos.y, false, 0);
 
       this.showToast('❌ MISSED', 'Keep trying!', true);

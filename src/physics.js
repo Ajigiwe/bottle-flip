@@ -129,16 +129,24 @@ export class PhysicsWorld {
     const bottleX = tablePos.x - tableWidth * 0.35;
     const bottleY = tablePos.y - platformHeight / 2 - this.bottleHeight / 2;
 
+    // Water level (0.0 to 1.0) directly affects bottle physics:
+    // 0% (Empty): Light density (0.0011), higher bounce (0.16), lower inertia (2800)
+    // 50% (Standard): Medium density (0.0025), medium bounce (0.08), medium inertia (4500)
+    // 100% (Full): Heavy density (0.0042), low bounce (0.03), heavy inertia (6200)
+    const baseDensity = 0.0011 + this.liquidFill * 0.0031;
+    const restitution = Math.max(0.03, 0.16 - this.liquidFill * 0.13);
+
     this.bottle = Bodies.rectangle(bottleX, bottleY, this.bottleWidth, this.bottleHeight, {
-      chamfer: { radius: [6, 6, 2, 2] }, // Flat bottom base (2px) so bottle stands stable on surface
+      chamfer: { radius: [2, 2, 2, 2] }, // Equal 2px squarer chamfer for both cap and base stability
       friction: 0.95,
-      frictionAir: 0.0015,
-      restitution: 0.08, // Low bounciness absorbs impact smoothly on landing
-      density: 0.0024,
+      frictionAir: 0.0014,
+      restitution,
+      density: baseDensity,
       label: 'bottle'
     });
 
-    Body.setInertia(this.bottle, 4500);
+    const baseInertia = 2800 + this.liquidFill * 3400;
+    Body.setInertia(this.bottle, baseInertia);
     this.updateCenterOfMass();
 
     const tableTopY = tablePos.y - platformHeight / 2;
@@ -152,7 +160,6 @@ export class PhysicsWorld {
     });
 
     // Keep bottle perfectly still on the table until the player throws it.
-    // Without this, chamfer/COM interactions can make it drift and fall.
     Body.setStatic(this.bottle, true);
 
     World.add(this.engine.world, this.bottle);
@@ -165,6 +172,7 @@ export class PhysicsWorld {
 
   updateCenterOfMass() {
     if (!this.bottle) return;
+    // Water fill shifts center of mass towards the bottom
     const shiftY = (this.liquidFill - 0.5) * (this.bottleHeight * 0.35);
     Body.setCentre(this.bottle, { x: 0, y: shiftY }, true);
   }
@@ -248,7 +256,6 @@ export class PhysicsWorld {
       const upright = this.isCurrentlyUpright();
 
       // DAMP ROTATIONAL ROCKING ON TOUCHDOWN:
-      // When bottle is upright or headstand and near table/ground height, damp angular velocity so it stays balanced
       if (upright && this.bottle && this.bottle.position.y > this.table.position.y - 120) {
         Body.setAngularVelocity(this.bottle, this.bottle.angularVelocity * 0.65);
       }
@@ -266,14 +273,18 @@ export class PhysicsWorld {
         this.state = linearSpeed > 0.6 ? 'FLIGHT' : 'SETTLING';
       }
 
-      // Self-righting pendulum assist when settling near upright
+      // Self-righting pendulum assist for BOTH upright (0/2pi) and headstand (pi)
       if (this.state === 'SETTLING' && this.bottle) {
         const rawAngle = this.bottle.angle;
         const twoPi = Math.PI * 2;
         const normAngle = ((rawAngle % twoPi) + twoPi) % twoPi;
-        const tilt = normAngle > Math.PI ? normAngle - twoPi : normAngle;
-        if (Math.abs(tilt) < 0.55) {
-          Body.setAngularVelocity(this.bottle, this.bottle.angularVelocity * 0.80 - tilt * 0.035);
+        const baseTilt = normAngle > Math.PI ? normAngle - twoPi : normAngle;
+        const capTilt = normAngle - Math.PI;
+
+        if (Math.abs(baseTilt) < 0.55) {
+          Body.setAngularVelocity(this.bottle, this.bottle.angularVelocity * 0.80 - baseTilt * 0.035);
+        } else if (Math.abs(capTilt) < 0.55) {
+          Body.setAngularVelocity(this.bottle, this.bottle.angularVelocity * 0.80 - capTilt * 0.035);
         }
       }
 
