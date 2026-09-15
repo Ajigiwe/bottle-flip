@@ -67,6 +67,7 @@ function flightMatchedSpin(physics, vy) {
   while (!landed && frames < 600) { p.update(1000 / 60); frames++; }
 
   check('matched toss resolves within 10s sim time', !!landed, `frames=${frames}`);
+  check('no verdict before touchdown delay (≥500ms flight)', frames * (1000 / 60) >= 500, `verdict at ${(frames * (1000 / 60)).toFixed(0)}ms`);
   if (landed) {
     const st = bottleRestState(p);
     check('matched toss lands upright', landed.isUpright === true, `reason=${landed.reason || 'ok'}`);

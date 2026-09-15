@@ -43,10 +43,17 @@ export class PhysicsWorld {
     this.rightWall = null;
     this.ground = null;
 
-    // Bottle silhouette (px): base 50 wide, 100 tall ≈ a real 500ml bottle
-    // (65mm diameter, 210mm tall ≈ 31% width ratio).
+    // Bottle silhouette (px), shared with the renderer so physics and art
+    // stay aligned: base 50 wide, 100 tall ≈ a real 500ml bottle
+    // (65mm diameter, 210mm tall ≈ 31% width ratio). The renderer derives
+    // capW/neckW from these same w/h values — see drawCleanBottle().
     this.bottleWidth = 50;
     this.bottleHeight = 100;
+    // Real 500ml PET bottle weights: empty ≈ 19–25g, full ≈ 520g (500ml
+    // water ≈ 500g + bottle). bottleMassG reports the current fill's weight.
+    this.bottleEmptyMassG = 22;   // grams
+    this.bottleFullMassG = 522;   // grams
+    this.bottleMassG = this.bottleEmptyMassG;
     this.capHeight = 12;
     this.neckWidth = 24;
     this.neckHeight = 10;
@@ -195,6 +202,11 @@ export class PhysicsWorld {
       }),
     ];
 
+    // Compound parts do NOT inherit the parent label — collision pairs
+    // report raw labels like "Rectangle Body", which broke thud sounds,
+    // slam detection and touchdown tracking. Tag every part.
+    for (const part of parts) part.label = 'bottle';
+
     const bottle = Body.create({
       parts,
       // High contact friction is what makes real flips work: the flat base
@@ -206,6 +218,12 @@ export class PhysicsWorld {
       restitution,            // dead: real bottles thud, they don't bounce
       label: 'bottle',
     });
+
+    // Report actual weight for HUD/debug (grams): scale sim mass to the
+    // real 500ml-bottle curve (22g empty → 522g full).
+    this.bottleMassG = Math.round(
+      this.bottleEmptyMassG + (this.bottleFullMassG - this.bottleEmptyMassG) * this.liquidFill
+    );
 
     return bottle;
   }
@@ -276,6 +294,7 @@ export class PhysicsWorld {
     World.add(this.engine.world, this.bottle);
 
     this._touchedTable = false;
+    this._verdictIssued = false;
     this.state = 'FLIGHT';
     this.flightTime = 0;
     this.settleTimer = 0;
@@ -285,22 +304,36 @@ export class PhysicsWorld {
     Events.on(this.engine, 'collisionStart', (event) => {
       for (const pair of event.pairs) {
         const { bodyA, bodyB } = pair;
-        if (bodyA === this.bottle || bodyB === this.bottle) {
-          const other = bodyA === this.bottle ? bodyB : bodyA;
-          const speed = Vector.magnitude(this.bottle.velocity);
-          if (this.onCollisionCallback) this.onCollisionCallback(other, speed);
+        // Compound-body parts carry the 'bottle' label themselves (parent
+        // labels do not propagate to parts), so match on label, not identity.
+        const bottleHit = bodyA.label === 'bottle' ? bodyA : bodyB.label === 'bottle' ? bodyB : null;
+        if (!bottleHit) continue;
+        const other = bottleHit === bodyA ? bodyB : bodyA;
 
-          // A violent slam well past the tip-over angle is already lost —
-          // side impacts at speed never stand back up. Slow, tilty contact
-          // is NOT a fail yet: the bottle may wobble and still settle.
-          if ((this.state === 'FLIGHT' || this.state === 'SETTLING') && (other === this.table || other === this.ground)) {
-            if (other === this.table) this._touchedTable = true;
-            const isSlam = speed > 3.0;
-            if (isSlam && !this.isCurrentlyUpright()) {
-              this.state = 'FAILED';
-              if (this.onLandingCallback) {
-                this.onLandingCallback({ isUpright: false, isTarget: false, reason: 'SIDE_LANDING' });
-              }
+        // Only react to bottle-vs-world contacts; ignore part-vs-part pairs.
+        if (other.label === 'bottle') continue;
+        if (this.state !== 'FLIGHT' && this.state !== 'SETTLING') continue;
+
+        const speed = Vector.magnitude(this.bottle.velocity);
+        if (this.onCollisionCallback) this.onCollisionCallback(other, speed);
+
+        // A violent BROADSIDE slam is already lost — a bottle hitting the
+        // table sideways at high speed never stands back up. The gates are
+        // set beyond honest landings: matched touches arrive at ~2.5–4 speed
+        // with mid-rotation tilt (and can still wobble upright from ~20°),
+        // so only a fast AND clearly broadside impact (46°+) insta-fails.
+        // Slower or steeper contacts are left to the rest-based verdict.
+        if (other === this.table || other === this.ground) {
+          if (other === this.table) this._touchedTable = true;
+          const twoPi = Math.PI * 2;
+          const norm = ((this.bottle.angle % twoPi) + twoPi) % twoPi;
+          const tilt = norm > Math.PI ? twoPi - norm : norm;
+          const broadside = tilt > 0.8 && tilt < Math.PI - 0.8;
+          const isSlam = speed > 4.5 && broadside;
+          if (isSlam) {
+            this.state = 'FAILED';
+            if (this.onLandingCallback) {
+              this.onLandingCallback({ isUpright: false, isTarget: false, reason: 'SIDE_LANDING' });
             }
           }
         }
@@ -347,16 +380,24 @@ export class PhysicsWorld {
       const linearSpeed = Vector.magnitude(this.bottle.velocity);
       const angularSpeed = Math.abs(this.bottle.angularVelocity);
 
-      // Judge ONLY at genuine rest. With near-zero restitution and high base
+      // Judge ONLY at genuine rest, and only after the bottle has really
+      // landed (touchdown delay) — a verdict can never fire mid-air, however
+      // calm the flight looks. With near-zero restitution and high base
       // grip, post-touchdown wobble decays deterministically, so the resting
-      // pose is a stable function of the throw — no frame-phase luck. A
-      // bottle that plants steeply and wobbles back upright succeeds, one
-      // that comes to rest tipped fails, exactly like real life.
+      // pose is a stable function of the throw. A bottle that plants steeply
+      // and wobbles back upright succeeds, one that comes to rest tipped
+      // fails, exactly like real life.
       if (this.state === 'FLIGHT' || this.state === 'SETTLING') {
+        // Touchdown delay: no verdict before real table contact plus a
+        // minimum flight time. A matched flip arc is 0.7–1.4s; 500ms is well
+        // inside any real throw, so this never decides an outcome — it just
+        // makes "instant verdicts" physically impossible.
+        const touchdownDelayPassed = this._touchedTable && this.flightTime >= 500;
+
         // Judged once it has genuinely come to rest: near-zero linear AND
         // angular speed, held for a sustained window.
         const atRest = linearSpeed < 0.35 && angularSpeed < 0.06;
-        if (atRest && this.flightTime > 300) {
+        if (atRest && touchdownDelayPassed) {
           this.settleTimer += deltaTime;
           if (this.settleTimer > 250) {
             // A slowly-toppling bottle also passes the speed gates while it
@@ -371,8 +412,12 @@ export class PhysicsWorld {
             const uprightish = tilt < this.uprightTolerance * 1.05;
             const headstandish = Math.abs(norm - Math.PI) < this.uprightTolerance * 1.2;
             const onSide = tilt > 1.6; // ~92°+ → lying on its side
-            if (uprightish || headstandish || onSide) this.evaluateLanding();
-            else this.settleTimer = 0;
+            if (uprightish || headstandish || onSide) {
+              this._verdictIssued = true;
+              this.evaluateLanding();
+            } else {
+              this.settleTimer = 0;
+            }
           }
         } else {
           this.settleTimer = 0;
@@ -393,7 +438,8 @@ export class PhysicsWorld {
       // Stalemate failsafe: if the bottle is still bouncing/rocking after 8s
       // (micro-jitter can ping-pong forever in a discrete solver), judge the
       // current pose instead of leaving the player hanging.
-      if (this.flightTime > 8000) {
+      if (!this._verdictIssued && this.flightTime > 8000) {
+        this._verdictIssued = true;
         this.evaluateLanding();
       }
     }
@@ -401,13 +447,8 @@ export class PhysicsWorld {
 
   // ── Landing Evaluation ───────────────────────────────────────────────────
 
-  /**
-   * Judge the landing. contactAngleOverride lets the caller supply the
-   * pose at the exact sub-frame moment of touchdown (more accurate than
-   * the current frame's angle for fast spins).
-   */
-  evaluateLanding(contactAngleOverride = null) {
-    const angle = contactAngleOverride ?? this.bottle.angle;
+  evaluateLanding() {
+    const angle = this.bottle.angle;
     const twoPi = Math.PI * 2;
     const normalizedAngle = ((angle % twoPi) + twoPi) % twoPi;
 
