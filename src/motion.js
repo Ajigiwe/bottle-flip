@@ -34,16 +34,15 @@ export class MotionController {
     this.autoInitSensorOnTouch();
   }
 
-  autoInitSensorOnTouch() {
-    // Only auto-enable on devices that support DeviceMotion AND don't require
-    // explicit permission (i.e. non-iOS). iOS must go through the sensor modal.
-    const requiresPermission =
+  requiresPermissionPrompt() {
+    return (
       typeof DeviceMotionEvent !== 'undefined' &&
-      typeof DeviceMotionEvent.requestPermission === 'function';
+      typeof DeviceMotionEvent.requestPermission === 'function' &&
+      !this.hasSensorPermission
+    );
+  }
 
-    if (requiresPermission) return;
-    if (typeof DeviceMotionEvent === 'undefined') return;
-
+  autoInitSensorOnTouch() {
     const handler = () => {
       this.enableSensor();
       window.removeEventListener('touchstart', handler);
@@ -61,11 +60,11 @@ export class MotionController {
 
   updateSensitivityParameters() {
     const norm = (this.sensitivityLevel - 1) / 9; // 0.0 → 1.0
-    this.flickThreshold = 26.0 - norm * 12.0;
+    // Lowered threshold range (14.0 down to 6.0 m/s²) so phone flicks register naturally
+    this.flickThreshold = 14.0 - norm * 8.0;
     this.swipeScaleVx = 0.30 + norm * 0.25;
     this.swipeScaleVy = 0.50 + norm * 0.30;
     this.minSwipeDist = 40 - norm * 18;
-    // Max throw speed used to normalise power meter
     this._maxThrowVy = 23;
   }
 
@@ -108,15 +107,18 @@ export class MotionController {
     if (this.physics.state !== 'READY') return;
 
     let ax = 0, ay = 0, az = 0;
+    const acc = event.acceleration;
+    const accGravity = event.accelerationIncludingGravity;
 
-    if (event.acceleration && event.acceleration.x !== null) {
-      ax = event.acceleration.x || 0;
-      ay = event.acceleration.y || 0;
-      az = event.acceleration.z || 0;
-    } else if (event.accelerationIncludingGravity) {
-      const rawX = event.accelerationIncludingGravity.x || 0;
-      const rawY = event.accelerationIncludingGravity.y || 0;
-      const rawZ = event.accelerationIncludingGravity.z || 0;
+    // Check if hardware linear acceleration is non-zero
+    if (acc && acc.x !== null && acc.x !== undefined && (acc.x !== 0 || acc.y !== 0 || acc.z !== 0)) {
+      ax = acc.x;
+      ay = acc.y;
+      az = acc.z;
+    } else if (accGravity && accGravity.x !== null && accGravity.x !== undefined) {
+      const rawX = accGravity.x || 0;
+      const rawY = accGravity.y || 0;
+      const rawZ = accGravity.z || 0;
 
       const alpha = 0.82;
       this.gravityVector.x = alpha * this.gravityVector.x + (1 - alpha) * rawX;
@@ -133,13 +135,13 @@ export class MotionController {
     const flickMagnitude = Math.sqrt(ax * ax + ay * ay + az * az);
     const now = Date.now();
 
-    if (flickMagnitude > this.flickThreshold && now - this.lastFlickTime > 1400) {
+    if (flickMagnitude > this.flickThreshold && now - this.lastFlickTime > 900) {
       this.lastFlickTime = now;
 
       const norm = (this.sensitivityLevel - 1) / 9;
-      const power = Math.min(22, flickMagnitude * (0.6 + norm * 0.3));
+      const power = Math.min(22, flickMagnitude * (0.8 + norm * 0.4));
       const upwardVel = -Math.max(13, power * 0.85);
-      const rightVel = Math.min(10, Math.max(-10, ax * 0.7 + 5));
+      const rightVel = Math.min(10, Math.max(-10, ax * 0.8)); // Directionally clean throw
       const flipSpin = -Math.min(0.24, 0.11 + Math.abs(upwardVel) * 0.007);
 
       this.sound.playWhoosh(power / 18);

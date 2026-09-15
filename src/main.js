@@ -172,6 +172,15 @@ class BottleFlipGame {
     });
 
     // Sensor
+    this.enableSensorBtn = document.getElementById('enable-sensor-btn');
+    this.enableSensorBtn?.addEventListener('click', async () => {
+      soundManager.playClick();
+      const granted = await this.motionController.requestPermission();
+      this.showToast(granted ? 'SENSOR ENABLED' : 'SENSOR DENIED',
+        granted ? 'Flick your phone to throw!' : 'Using Touch/Swipe Controls');
+      this.settingsModal.classList.add('hidden');
+    });
+
     this.grantSensorBtn.addEventListener('click', async () => {
       soundManager.playClick();
       const granted = await this.motionController.requestPermission();
@@ -278,6 +287,11 @@ class BottleFlipGame {
 
     this.homeScreen.classList.add('hidden');
     this.gameoverScreen.classList.add('hidden');
+
+    // Prompt iOS / mobile users for motion sensor permissions if needed
+    if (this.motionController && this.motionController.requiresPermissionPrompt()) {
+      this.sensorModal?.classList.remove('hidden');
+    }
 
     this._syncModeUI();
 

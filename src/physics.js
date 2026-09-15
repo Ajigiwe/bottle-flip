@@ -151,6 +151,10 @@ export class PhysicsWorld {
       y: this.bottle.position.y + (tableTopY - bottleBottomY)
     });
 
+    // Keep bottle perfectly still on the table until the player throws it.
+    // Without this, chamfer/COM interactions can make it drift and fall.
+    Body.setStatic(this.bottle, true);
+
     World.add(this.engine.world, this.bottle);
     this.state = 'READY';
     this.flightTime = 0;
@@ -267,6 +271,11 @@ export class PhysicsWorld {
 
     if (isUpright && (isOnTable || isOnGround)) {
       this.state = 'LANDED';
+      
+      // Freeze bottle in position so it never wobbles or falls after landing
+      Body.setStatic(this.bottle, true);
+      Body.setVelocity(this.bottle, { x: 0, y: 0 });
+      Body.setAngularVelocity(this.bottle, 0);
 
       // Update difficulty every 5 successes
       this.successCount++;
