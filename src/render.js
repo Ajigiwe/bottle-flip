@@ -96,11 +96,9 @@ export class GameRenderer {
     // Feed fire each frame while airborne
     const bottle = this.physics.bottle;
     if (bottle && (this.physics.state === 'FLIGHT' || this.physics.state === 'SETTLING')) {
-      let cx = 0, cy = 0;
-      for (const v of bottle.vertices) { cx += v.x; cy += v.y; }
-      cx /= bottle.vertices.length; cy /= bottle.vertices.length;
-      this.effects.recordTrail(cx, cy);
-      this.effects.feedFire(cx, cy, streak);
+      const centre = this._bottleCentre();
+      this.effects.recordTrail(centre.x, centre.y);
+      this.effects.feedFire(centre.x, centre.y, streak);
     } else {
       this.effects.clearTrail();
     }
@@ -210,28 +208,41 @@ export class GameRenderer {
     ctx.restore();
   }
 
+  /**
+   * Centre of the bottle's rendered silhouette. For compound Matter bodies
+   * the body position is the centre of MASS (pulled towards the heavy base),
+   * not the silhouette centre — so compute it from the vertices instead.
+   */
+  _bottleCentre() {
+    const bottle = this.physics.bottle;
+    if (!bottle?.vertices?.length) return { x: 0, y: 0 };
+    let cx = 0, cy = 0;
+    for (const v of bottle.vertices) { cx += v.x; cy += v.y; }
+    cx /= bottle.vertices.length; cy /= bottle.vertices.length;
+    return { x: cx, y: cy };
+  }
+
   // ── Trajectory Arc ───────────────────────────────────────────────────────
 
   drawTrajectory() {
     const traj = this.motion.getAimTrajectory();
     if (!traj) return;
 
-    const bottle = this.physics.bottle;
-    if (!bottle?.vertices?.length) return;
-
-    let cx = 0, cy = 0;
-    for (const v of bottle.vertices) { cx += v.x; cy += v.y; }
-    cx /= bottle.vertices.length; cy /= bottle.vertices.length;
+    const { x: cx, y: cy } = this._bottleCentre();
+    if (cx === 0 && cy === 0) return;
 
     let currX = cx, currY = cy;
     let vx = traj.vx, vy = traj.vy;
 
-    // Realistic parabolic trajectory step matching Matter.js physics
+    // True physics arc: Matter applies gravity.y × gravity.scale × Δt² per
+    // tick, and the preview steps at 1.5 ticks — mirror that exactly.
+    const grav = this.physics.engine.gravity;
+    const gStep = grav.y * grav.scale * (1000 / 60) * (1000 / 60) * 1.5;
     this.ctx.fillStyle = 'rgba(255,255,255,0.85)';
     for (let i = 0; i < 24; i++) {
       currX += vx * 1.5;
       currY += vy * 1.5;
-      vy += 0.28; // Realistic physics gravity step
+      vy += gStep;
       const radius = Math.max(1.2, 3.6 - i * 0.1);
       this.ctx.beginPath();
       this.ctx.arc(currX, currY, radius, 0, Math.PI * 2);
@@ -245,12 +256,8 @@ export class GameRenderer {
     const power = this.motion.getPowerPercent();
     if (power === null) return;
 
-    const bottle = this.physics.bottle;
-    if (!bottle?.vertices?.length) return;
-
-    let cx = 0, cy = 0;
-    for (const v of bottle.vertices) { cx += v.x; cy += v.y; }
-    cx /= bottle.vertices.length; cy /= bottle.vertices.length;
+    const { x: cx, y: cy } = this._bottleCentre();
+    if (cx === 0 && cy === 0) return;
 
     const ctx = this.ctx;
     const radius = 30;
@@ -315,9 +322,10 @@ export class GameRenderer {
     if (!bottle?.vertices?.length) return;
 
     const ctx = this.ctx;
-    let cx = 0, cy = 0;
-    for (const v of bottle.vertices) { cx += v.x; cy += v.y; }
-    cx /= bottle.vertices.length; cy /= bottle.vertices.length;
+    // Compound bodies: silhouette centre from vertices, not body.position
+    // (which is the centre of mass and sits low in the base).
+    const centre = this._bottleCentre();
+    const cx = centre.x, cy = centre.y;
 
     const angle = bottle.angle;
     const w = this.physics.bottleWidth || 46;

@@ -142,7 +142,14 @@ export class MotionController {
       const power = Math.min(22, flickMagnitude * (0.8 + norm * 0.4));
       const upwardVel = -Math.max(13, power * 0.85);
       const rightVel = Math.min(10, Math.max(-10, ax * 0.8)); // Directionally clean throw
-      const flipSpin = -Math.min(0.24, 0.11 + Math.abs(upwardVel) * 0.007);
+
+      // Flight-matched spin (same model as touch): one rotation per arc.
+      const frameTime = 1000 / 60;
+      const gPerTick = this.physics.engine.gravity.y * this.physics.engine.gravity.scale * frameTime * frameTime;
+      const flightTicks = (2 * Math.abs(upwardVel)) / gPerTick;
+      // Same calibrated clean-release model as the touch path.
+      const oneFlipOmega = (Math.PI * 2) / flightTicks * Math.exp(0.0012 * flightTicks) * 0.96;
+      const flipSpin = -oneFlipOmega;
 
       this.sound.playWhoosh(power / 18);
       this.physics.throwBottle(rightVel, upwardVel, flipSpin);
@@ -170,10 +177,22 @@ export class MotionController {
     this._powerPercent = 0;
   }
 
+  /**
+   * Realistic spin coupling: a thrown bottle completes roughly one full
+   * rotation per flight arc (this is why real flips are catchable — the
+   * rotation period matches the time the bottle is airborne).
+   *
+   * Using the gravity constant from the physics world, the flight time for a
+   * throw of speed vy is t = 2·|vy|/g. One full rotation over that time means
+   * ω = 2π / flightTicks, where flightTicks = t / frameTime. Gesture quality
+   * (a sloppy release) adds a spin penalty that under-rotates the bottle, and
+   * power changes the arc height — together they recreate the real skill:
+   * matching your spin to your toss.
+   */
   calculateTouchVelocity(dx, dy) {
     const dragY = Math.max(0, -dy);
     const normY = Math.min(1, Math.max(0, (dragY - 20) / 180));
-    
+
     // Vertical velocity ranges smoothly from -11.0 to -22.5
     const throwVy = -11.0 - normY * 11.5;
 
@@ -181,8 +200,27 @@ export class MotionController {
     const normX = Math.min(1, Math.max(-1, dx / 140));
     const throwVx = normX * 13.0;
 
-    // Angular spin scales with throw power
-    const angularSpin = -(0.11 + normY * 0.12);
+    // ── Flight-matched spin ─────────────────────────────────────────
+    // Matter applies gravity.scale × delta² per tick, so effective gravity
+    // in px/tick² is g = gravity.y × gravity.scale × frameTime². Flight time
+    // for a throw of vy is 2·|vy|/g ticks; one full rotation per arc:
+    const frameTime = 1000 / 60;
+    const gPerTick = this.physics.engine.gravity.y * this.physics.engine.gravity.scale * frameTime * frameTime;
+    const flightTicks = (2 * Math.abs(throwVy)) / gPerTick;
+    // Drag-adaptive clean release: frictionAir decays spin by exp(-k·T) over
+    // the arc, so pre-compensate; then a calibration factor that centres a
+    // perfect release in the middle of the sim-verified landing window
+    // (~±5% spin). Gesture sloppiness multiplies this down: the steepest
+    // penalty just crosses the guaranteed-fail boundary.
+    const oneFlipOmega = (Math.PI * 2) / flightTicks * Math.exp(0.0012 * flightTicks) * 0.96;
+
+    // Spin penalty: a perfect straight-up drag is a clean release; sloppy
+    // drags under-rotate the bottle so it lands mid-rotation or on its side
+    // — exactly like a real bad throw. Scale is calibrated to the physics:
+    // the honest landing window is about ±5.5% spin (±20° at touchdown), so
+    // the steepest penalty reaches just past the guaranteed-fail point.
+    const releaseQuality = 1 - Math.min(0.12, Math.abs(normX) * 0.09 + (1 - normY) * 0.06);
+    const angularSpin = -oneFlipOmega * releaseQuality;
 
     return { vx: throwVx, vy: throwVy, angularSpin, powerPercent: normY };
   }
