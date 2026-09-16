@@ -1,4 +1,5 @@
 // Motion Controller: DeviceMotionEvent Accelerometer Sensing & Touch/Mouse Swipe Fallback
+import { FIXED_STEP_MS } from './timestep.js';
 
 export class MotionController {
   constructor(physicsWorld, soundManager, onThrowTriggered) {
@@ -144,7 +145,7 @@ export class MotionController {
       const rightVel = Math.min(10, Math.max(-10, ax * 0.8)); // Directionally clean throw
 
       // Flight-matched spin (same model as touch): one rotation per arc.
-      const frameTime = 1000 / 60;
+      const frameTime = FIXED_STEP_MS;
       const gPerTick = this.physics.engine.gravity.y * this.physics.engine.gravity.scale * frameTime * frameTime;
       const flightTicks = (2 * Math.abs(upwardVel)) / gPerTick;
       // Same calibrated clean-release model as the touch path (0.92 centres a
@@ -205,7 +206,7 @@ export class MotionController {
     // Matter applies gravity.scale × delta² per tick, so effective gravity
     // in px/tick² is g = gravity.y × gravity.scale × frameTime². Flight time
     // for a throw of vy is 2·|vy|/g ticks; one full rotation per arc:
-    const frameTime = 1000 / 60;
+    const frameTime = FIXED_STEP_MS;
     const gPerTick = this.physics.engine.gravity.y * this.physics.engine.gravity.scale * frameTime * frameTime;
     const flightTicks = (2 * Math.abs(throwVy)) / gPerTick;
     // Drag-adaptive clean release: frictionAir decays spin by exp(-k·T) over

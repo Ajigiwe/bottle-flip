@@ -1,4 +1,5 @@
 import Matter from 'matter-js';
+import { FIXED_STEP_MS } from './timestep.js';
 
 const { Engine, World, Bodies, Body, Vector, Events } = Matter;
 
@@ -467,7 +468,7 @@ export class PhysicsWorld {
 
   // ── Per-Frame Update ──────────────────────────────────────────────────────
 
-  update(deltaTime = 1000 / 60) {
+  update(deltaTime = FIXED_STEP_MS) {
     // Apply wind during flight only.
     if ((this.state === 'FLIGHT' || this.state === 'SETTLING') && this.windForce !== 0 && this.bottle) {
       Body.applyForce(this.bottle, this.bottle.position, {

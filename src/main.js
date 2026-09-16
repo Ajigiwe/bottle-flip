@@ -8,6 +8,7 @@ import { AchievementSystem } from './achievements.js';
 import { SkinSystem, SKINS } from './skinSystem.js';
 import { GameMode } from './gameState.js';
 import { ChallengeSystem, CHALLENGES, TIER_META } from './challenges.js';
+import { SimClock } from './timestep.js';
 
 const TIMED_DURATION = 30; // seconds for blitz mode
 const CHALLENGE_LIVES = 5; // gauntlet mode: tight budget, every miss hurts
@@ -478,7 +479,9 @@ class BottleFlipGame {
     this.physics.onLandingCallback = (result) => this.handleLandingResult(result);
 
     this.lastTime = performance.now();
-    requestAnimationFrame(this.gameLoop.bind(this));
+    this._clock = new SimClock();
+    this._boundGameLoop = this.gameLoop.bind(this); // bind once — a fresh closure per frame is GC fodder
+    requestAnimationFrame(this._boundGameLoop);
   }
 
   handleThrowTriggered(type) {
@@ -918,13 +921,15 @@ class BottleFlipGame {
   // ── Game Loop ─────────────────────────────────────────────────────────────
 
   gameLoop(timestamp) {
-    const dt = Math.min(50, timestamp - this.lastTime);
+    // Physics advances through the shared SimClock (src/timestep.js) in exact
+    // FIXED_STEP_MS quanta — the identical step sequence the headless sim
+    // uses, so live gameplay can never drift from sim-calibrated behaviour.
+    this._clock.advance(timestamp - this.lastTime, (dt) => this.physics.update(dt));
     this.lastTime = timestamp;
 
-    this.physics.update(dt);
     this.renderer.render(this.streak, this.bestScore);
 
-    requestAnimationFrame(this.gameLoop.bind(this));
+    requestAnimationFrame(this._boundGameLoop);
   }
 }
 

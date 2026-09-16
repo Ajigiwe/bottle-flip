@@ -1,5 +1,6 @@
 import confetti from 'canvas-confetti';
 import { EffectsEngine } from './effects.js';
+import { FIXED_STEP_MS } from './timestep.js';
 
 export class GameRenderer {
   constructor(canvas, physicsWorld, motionController, skinSystem) {
@@ -237,7 +238,7 @@ export class GameRenderer {
     // True physics arc: Matter applies gravity.y × gravity.scale × Δt² per
     // tick, and the preview steps at 1.5 ticks — mirror that exactly.
     const grav = this.physics.engine.gravity;
-    const gStep = grav.y * grav.scale * (1000 / 60) * (1000 / 60) * 1.5;
+    const gStep = grav.y * grav.scale * FIXED_STEP_MS * FIXED_STEP_MS * 1.5;
     this.ctx.fillStyle = 'rgba(255,255,255,0.85)';
     for (let i = 0; i < 24; i++) {
       currX += vx * 1.5;

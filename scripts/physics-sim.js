@@ -3,13 +3,18 @@
  * Verifies, without a browser:
  *  1. The idle bottle doesn't drift (aiming proxy stable).
  *  2. An upright landing with low spin stays upright (genuine rest, not a freeze).
- *  3. A mid-air side-impact slam fails immediately.
+ *  3. Violent slams are judged at genuine rest (verdict matches final pose).
  *  4. A tipped bottle that comes to rest on its side is judged a failure.
  *
  * Run: node scripts/physics-sim.js
+ *
+ * Every loop advances through the shared timestep utilities (src/timestep.js)
+ * — the exact fixed 60Hz step sequence the browser game loop uses — so the
+ * sim and the live game can never drift apart.
  */
 import Matter from 'matter-js';
 import { PhysicsWorld } from '../src/physics.js';
+import { FIXED_STEP_MS, stepUntil } from '../src/timestep.js';
 
 const results = [];
 function check(name, cond, detail = '') {
@@ -40,7 +45,7 @@ function bottleRestState(p) {
 
   const x0 = p.bottle.position.x;
   const a0 = p.bottle.angle;
-  for (let i = 0; i < 120; i++) p.update(1000 / 60);
+  for (let i = 0; i < 120; i++) p.update(FIXED_STEP_MS);
   check('aiming pose is frozen (no drift)',
     Math.abs(p.bottle.position.x - x0) < 0.01 && Math.abs(p.bottle.angle - a0) < 0.0001);
 }
@@ -49,7 +54,7 @@ function bottleRestState(p) {
 // Uses the same flight-matched spin model as MotionController: one rotation
 // per flight arc (ω = 2π / flightTicks), slightly imperfect release.
 function flightMatchedSpin(physics, vy) {
-  const frameTime = 1000 / 60;
+  const frameTime = FIXED_STEP_MS;
   const gPerTick = physics.engine.gravity.y * physics.engine.gravity.scale * frameTime * frameTime;
   const flightTicks = (2 * Math.abs(vy)) / gPerTick;
   return -(Math.PI * 2) / flightTicks * Math.exp(0.0012 * flightTicks); // raw model
@@ -65,12 +70,11 @@ const CLEAN_RELEASE = 0.92;
   p.throwBottle(0.3, vy, flightMatchedSpin(p, vy) * CLEAN_RELEASE); // clean release
 
   let landed = null;
-  let frames = 0;
   p.onLandingCallback = (r) => { landed = r; };
-  while (!landed && frames < 600) { p.update(1000 / 60); frames++; }
+  const { steps: frames } = stepUntil((dt) => p.update(dt), () => landed, 600);
 
   check('matched toss resolves within 10s sim time', !!landed, `frames=${frames}`);
-  check('no verdict before touchdown delay (≥500ms flight)', frames * (1000 / 60) >= 500, `verdict at ${(frames * (1000 / 60)).toFixed(0)}ms`);
+  check('no verdict before touchdown delay (≥500ms flight)', frames * FIXED_STEP_MS >= 500, `verdict at ${(frames * FIXED_STEP_MS).toFixed(0)}ms`);
   if (landed) {
     const st = bottleRestState(p);
     check('matched toss lands upright', landed.isUpright === true, `reason=${landed.reason || 'ok'}`);
@@ -86,9 +90,8 @@ const CLEAN_RELEASE = 0.92;
   p.windForce = 0;
   p.throwBottle(0.3, -17.5, -0.22); // legacy spin: ~2.2 flips per arc
   let landed = null;
-  let frames = 0;
   p.onLandingCallback = (r) => { landed = r; };
-  while (!landed && frames < 600) { p.update(1000 / 60); frames++; }
+  stepUntil((dt) => p.update(dt), () => landed, 600);
   check('over-rotated toss fails (spin now matters)', !!landed && landed.isUpright === false, landed ? `reason=${landed.reason}` : 'no callback');
 }
 
@@ -104,9 +107,8 @@ const CLEAN_RELEASE = 0.92;
     p.windForce = 0;
     p.throwBottle(vx, vy, -om);
     let landed = null;
-    let frames = 0;
     p.onLandingCallback = (r) => { landed = r; };
-    while (!landed && frames < 1200) { p.update(1000 / 60); frames++; }
+    stepUntil((dt) => p.update(dt), () => landed, 1200);
     if (!landed) continue;
     const st = bottleRestState(p);
     const endedUpright = st.tilt < p.uprightTolerance || Math.abs(st.tilt - Math.PI) < p.uprightTolerance;
@@ -121,9 +123,8 @@ const CLEAN_RELEASE = 0.92;
   p.windForce = 0;
   p.throwBottle(0.2, -8.0, -0.05); // weak toss, almost no spin → flops over
   let landed = null;
-  let frames = 0;
   p.onLandingCallback = (r) => { landed = r; };
-  while (!landed && frames < 1200) { p.update(1000 / 60); frames++; }
+  stepUntil((dt) => p.update(dt), () => landed, 1200);
 
   const onSide = p.bottle ? bottleRestState(p).tilt > 0.5 : false;
   check('under-powered flop judged as fail', !!landed && landed.isUpright === false, landed ? `reason=${landed.reason}` : 'no callback');
@@ -142,9 +143,8 @@ const CLEAN_RELEASE = 0.92;
   p.windForce = 0;
   p.throwBottle(5, -12, -1.3); // arrives near-vertical, balances, topples
   let landed = null;
-  let frames = 0;
   p.onLandingCallback = (r) => { landed = r; };
-  while (!landed && frames < 1200) { p.update(1000 / 60); frames++; }
+  stepUntil((dt) => p.update(dt), () => landed, 1200);
   check('stand-then-topple judged as fail', !!landed && landed.isUpright === false);
   check('stand-then-topple flags nearMiss', !!landed && landed.nearMiss === true);
 
@@ -152,9 +152,8 @@ const CLEAN_RELEASE = 0.92;
   q.windForce = 0;
   q.throwBottle(3.5, -12, -2.4); // fast double-flip that tumbles through vertical
   let landed2 = null;
-  let frames2 = 0;
   q.onLandingCallback = (r) => { landed2 = r; };
-  while (!landed2 && frames2 < 1200) { q.update(1000 / 60); frames2++; }
+  stepUntil((dt) => q.update(dt), () => landed2, 1200);
   check('flip-through judged as fail', !!landed2 && landed2.isUpright === false);
   check('flip-through does NOT flag nearMiss', !!landed2 && landed2.nearMiss === false);
 }
@@ -205,9 +204,8 @@ for (const [shape, vy] of [['bottle', -14], ['wine', -14], ['champagne', -14], [
   p.spawnBottle();
   p.throwBottle(0.3, vy, flightMatchedFor(p, vy) * CLEAN_RELEASE);
     let landed = null;
-    let frames = 0;
     p.onLandingCallback = (r) => { landed = r; };
-    while (!landed && frames < 900) { p.update(1000 / 60); frames++; }
+    stepUntil((dt) => p.update(dt), () => landed, 900);
     check(`${shape}: matched toss lands upright`, !!landed && landed.isUpright === true,
       landed ? `reason=${landed.reason}` : 'no callback');
   }
