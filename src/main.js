@@ -7,8 +7,10 @@ import { Leaderboard } from './leaderboard.js';
 import { AchievementSystem } from './achievements.js';
 import { SkinSystem, SKINS } from './skinSystem.js';
 import { GameMode } from './gameState.js';
+import { ChallengeSystem, CHALLENGES, TIER_META } from './challenges.js';
 
 const TIMED_DURATION = 30; // seconds for blitz mode
+const CHALLENGE_LIVES = 5; // gauntlet mode: tight budget, every miss hurts
 
 class BottleFlipGame {
   constructor() {
@@ -25,6 +27,11 @@ class BottleFlipGame {
     // Timed mode
     this.timeLeft = TIMED_DURATION;
     this._timerInterval = null;
+
+    // Challenge Gauntlet
+    this.challenges = new ChallengeSystem();
+    this.challengeLives = CHALLENGE_LIVES;
+    this._challengePointsPool = 0; // bonus points claimed during this game
 
     // Subsystems
     this.leaderboard = new Leaderboard();
@@ -70,6 +77,9 @@ class BottleFlipGame {
     this.leaderboardModal  = document.getElementById('leaderboard-modal');
     this.achievementsModal = document.getElementById('achievements-modal');
     this.skinsModal        = document.getElementById('skins-modal');
+    this.challengesModal   = document.getElementById('challenges-modal');
+    this.challengeBanner   = document.getElementById('challenge-banner');
+    this.challengeLivesVal = document.getElementById('challenge-lives-val');
     this.achToast          = document.getElementById('ach-toast');
     this.achToastText      = document.getElementById('ach-toast-text');
 
@@ -105,6 +115,8 @@ class BottleFlipGame {
     this.closeAchBtn     = document.getElementById('close-ach-btn');
     this.skinsBtn        = document.getElementById('skins-btn');
     this.closeSkinsBtn   = document.getElementById('close-skins-btn');
+    this.challengesBtn   = document.getElementById('challenges-btn');
+    this.closeChallengesBtn = document.getElementById('close-challenges-btn');
 
     // Audio initial state
     if (soundManager.isMuted) {
@@ -116,6 +128,8 @@ class BottleFlipGame {
     this._renderSkinPicker();
     this._renderAchievements();
     this._renderLeaderboard();
+    this._syncChallengeState();
+    this._renderChallenges();
   }
 
   _bindEvents() {
@@ -214,7 +228,9 @@ class BottleFlipGame {
         soundManager.playClick();
         document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        this.gameMode = btn.dataset.mode === 'TIMED' ? GameMode.TIMED : GameMode.LIVES;
+        this.gameMode =
+          btn.dataset.mode === 'TIMED' ? GameMode.TIMED :
+          btn.dataset.mode === 'CHALLENGE' ? GameMode.CHALLENGE : GameMode.LIVES;
         this._syncModeUI();
       });
     }
@@ -252,6 +268,17 @@ class BottleFlipGame {
       this.skinsModal.classList.add('hidden');
     });
 
+    // Challenges
+    this.challengesBtn?.addEventListener('click', () => {
+      soundManager.playClick();
+      this._renderChallenges();
+      this.challengesModal.classList.remove('hidden');
+    });
+    this.closeChallengesBtn?.addEventListener('click', () => {
+      soundManager.playClick();
+      this.challengesModal.classList.add('hidden');
+    });
+
     // Game over
     this.gameoverPlayBtn?.addEventListener('click', () => {
       soundManager.playClick();
@@ -278,6 +305,8 @@ class BottleFlipGame {
     this.streak = 0;
     this.totalFlips = 0;
     this.timeLeft = TIMED_DURATION;
+    this.challengeLives = CHALLENGE_LIVES;
+    this._challengePointsPool = 0;
     this.gameActive = true;
 
     this.scoreVal.textContent = '0';
@@ -285,7 +314,21 @@ class BottleFlipGame {
     this.streakCard.classList.remove('active-streak');
     this.updateFlipsDisplay();
     this.achievements.resetSession();
+    this.challenges.resetSession();
     this.physics.resetDifficulty();
+
+    // Bank any challenge bonuses completed earlier but not yet claimed
+    // (e.g. the app was closed right after finishing a task).
+    const banked = this.challenges.totalBonusPoints();
+    if (banked > 0) {
+      this._challengePointsPool += banked;
+      this.score += banked;
+      for (const c of CHALLENGES) {
+        const p = this.challenges.progress[c.id];
+        if (c.prize.kind === 'points' && p?.done && !p.claimed) this.challenges.claim(c.id);
+      }
+      this.scoreVal.textContent = this.score;
+    }
 
     this.homeScreen.classList.add('hidden');
     this.gameoverScreen.classList.add('hidden');
@@ -331,13 +374,31 @@ class BottleFlipGame {
 
   _syncModeUI() {
     const isLives = this.gameMode === GameMode.LIVES;
+    const isChallenge = this.gameMode === GameMode.CHALLENGE;
     document.getElementById('lives-card')?.classList.toggle('hidden', !isLives);
-    this.timerCard?.classList.toggle('hidden', isLives);
+    this.timerCard?.classList.toggle('hidden', isLives || isChallenge);
     if (isLives) {
       this.timerCard?.classList.remove('timer-danger');
     }
     if (this.difficultyVal) {
       this.difficultyVal.textContent = `D${this.physics?.difficulty ?? 0}`;
+    }
+    // Challenge banner: only during an active gauntlet run.
+    const showBanner = isChallenge && this.gameActive;
+    this.challengeBanner?.classList.toggle('hidden', !showBanner);
+    if (showBanner) this._updateChallengeBanner();
+  }
+
+  _updateChallengeBanner() {
+    if (this.challengeLivesVal) {
+      this.challengeLivesVal.textContent = `${this.challengeLives}`;
+    }
+    const taskEl = document.getElementById('challenge-next-task');
+    if (taskEl) {
+      const next = CHALLENGES.find(c => !this.challenges.progress[c.id]?.done);
+      taskEl.textContent = next
+        ? `${next.icon} ${next.title} · ${this.challenges.progressLabel(next)}`
+        : '🏆 All challenges complete!';
     }
   }
 
@@ -415,6 +476,16 @@ class BottleFlipGame {
       const points = basePoints * multiplier;
       this.score += points;
 
+      // Challenge Gauntlet: feed the landing in; newly-completed tasks
+      // grant their prizes immediately.
+      const completed = this.challenges.recordLanding(result, {
+        streak: this.streak,
+        score: this.score,
+        difficulty: this.physics.difficulty,
+      });
+      for (const c of completed) this._grantChallengePrize(c);
+      this._updateChallengeBanner();
+
       const newBest = this.score > this.bestScore;
       if (newBest) {
         this.bestScore = this.score;
@@ -475,6 +546,17 @@ class BottleFlipGame {
       soundManager.playCrash(1.5);
       this.renderer.triggerLandingParticles(bottlePos.x, bottlePos.y, false, 0);
 
+      // Challenge gauntlet: strict life budget — run out and the run ends.
+      if (this.gameMode === GameMode.CHALLENGE) {
+        this.challengeLives--;
+        this._updateChallengeBanner();
+        if (this.challengeLives <= 0) {
+          this.showToast('💀 GAUNTLET FAILED', 'Out of lives — tasks kept', true);
+          setTimeout(() => this._triggerGameOver(), 1600);
+          return;
+        }
+      }
+
       this.showToast('❌ MISSED', 'Keep trying!', true);
       // Let the failed pose sit on screen a beat longer than a success so
       // the player can see HOW it fell before the reset.
@@ -486,6 +568,7 @@ class BottleFlipGame {
     this.gameActive = false;
     clearInterval(this._timerInterval);
     soundManager.stopBgMusic();
+    this.challengeBanner?.classList.add('hidden');
 
     // Submit to leaderboard
     this.leaderboard.submit(this.score, this.gameMode);
@@ -499,13 +582,88 @@ class BottleFlipGame {
     if (this.gameoverScoreVal) this.gameoverScoreVal.textContent = this.score;
     if (this.gameoverBestVal) this.gameoverBestVal.textContent = this.bestScore;
     if (this.gameoverModeVal) {
-      this.gameoverModeVal.textContent = this.gameMode === GameMode.TIMED ? '⚡ TIMED BLITZ' : '❤️ CLASSIC LIVES';
+      this.gameoverModeVal.textContent =
+        this.gameMode === GameMode.TIMED ? '⚡ TIMED BLITZ' :
+        this.gameMode === GameMode.CHALLENGE ? '🏆 CHALLENGE GAUNTLET' : '♾️ CLASSIC LIVES';
     }
     this.gameoverScreen.classList.remove('hidden');
   }
 
   resetBottle() {
     this.physics.spawnBottle();
+  }
+
+  // ── Challenge Gauntlet ─────────────────────────────────────────────────
+
+  /** Grant a challenge's prize the moment its task completes. */
+  _grantChallengePrize(challenge) {
+    const p = this.challenges.progress[challenge.id];
+    if (!p || p.claimed) return;
+    this.challenges.claim(challenge.id);
+
+    if (challenge.prize.kind === 'points') {
+      this._challengePointsPool += challenge.prize.amount;
+      this.score += challenge.prize.amount;
+      this.scoreVal.textContent = this.score;
+      if (this.score > this.bestScore) {
+        this.bestScore = this.score;
+        localStorage.setItem('bottle_flip_best', this.bestScore.toString());
+        this.bestVal.textContent = this.bestScore;
+        if (this.homeBestVal) this.homeBestVal.textContent = this.bestScore;
+      }
+    } else if (challenge.prize.kind === 'skin') {
+      this.skinSystem.setChallengeUnlocked(true);
+      this._syncChallengeState();
+      this._renderSkinPicker();
+      this.renderer.triggerCapConfetti(window.innerWidth / 2, window.innerHeight / 2);
+    }
+
+    this._showChallengeToast(challenge);
+    soundManager.playCrowdCheer(8);
+  }
+
+  /** Persist the challenge-unlocked flag into the skin system + skin picker. */
+  _syncChallengeState() {
+    this.skinSystem.setChallengeUnlocked(this.challenges.completedCount >= CHALLENGES.length);
+  }
+
+  _showChallengeToast(challenge) {
+    if (!this.achToast || !this.achToastText) return;
+    const meta = TIER_META[challenge.tier];
+    this.achToastText.textContent = `${meta.icon} CHALLENGE: ${challenge.title} — ${challenge.prize.label}`;
+    this.achToast.classList.remove('hidden');
+    clearTimeout(this._challengeToastTimeout);
+    this._challengeToastTimeout = setTimeout(() => this.achToast.classList.add('hidden'), 2800);
+  }
+
+  // ── Challenge Modal Render ──────────────────────────────────────────
+
+  _renderChallenges() {
+    const grid = document.getElementById('challenges-grid');
+    if (!grid) return;
+    grid.innerHTML = CHALLENGES.map(c => {
+      const meta = TIER_META[c.tier];
+      const done = this.challenges.progress[c.id]?.done;
+      const ratio = this.challenges.ratioFor(c);
+      const isPrize = c.prize.kind === 'skin';
+      return `
+        <div class="challenge-card ${done ? 'done' : ''} tier-${c.tier}">
+          <div class="challenge-head">
+            <span class="challenge-icon">${done ? '✅' : c.icon}</span>
+            <div class="challenge-titles">
+              <span class="challenge-title">${c.title}</span>
+              <span class="challenge-desc">${c.desc}</span>
+            </div>
+            <span class="challenge-tier" style="color:${meta.color}">${meta.label}</span>
+          </div>
+          <div class="challenge-bar"><div class="challenge-fill" style="width:${Math.round(ratio * 100)}%"></div></div>
+          <div class="challenge-foot">
+            <span class="challenge-progress">${this.challenges.progressLabel(c)}</span>
+            <span class="challenge-prize">${isPrize ? '🏆' : '💰'} ${c.prize.label}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
   }
 
   // ── Toast Notifications ───────────────────────────────────────────────────

@@ -349,6 +349,13 @@ export class GameRenderer {
     ctx.fill();
     ctx.shadowBlur = 0;
 
+    // Grand-prize trophy has its own silhouette (foot + stem + cup)
+    if (shape === 'chalice') {
+      this._drawChalice(ctx, w, h, skin, this.physics.liquidFill);
+      ctx.restore();
+      return;
+    }
+
     const capW = Math.round(w * 0.42), capH = this.physics.capHeight || 12;
     const neckW = this.physics.neckWidth || Math.round(w * 0.36), neckH = this.physics.neckHeight || 10;
     const shoulderY = -h / 2 + capH + neckH;
@@ -460,9 +467,11 @@ export class GameRenderer {
     ctx.font = '600 7px "Space Grotesk", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    // Manual letter-spacing (non-standard ctx.letterSpacing avoided)
+    // Manual letter-spacing (non-standard ctx.letterSpacing avoided).
+    // Gap shrinks to fit slim containers so long words never overflow the
+    // label plate (available width ≈ w − 14, min gap 1.4px).
     const word = skin?.labelWord || 'PURE';
-    const gap = word.length > 4 ? 2.2 : 3.5;
+    const gap = Math.min(3.5, Math.max(1.4, (w - 14) / Math.max(1, word.length - 1)));
     const totalW = (word.length - 1) * gap;
     let lx = -totalW / 2;
     for (const ch of word) { ctx.fillText(ch, lx, labelY); lx += gap; }
@@ -566,7 +575,105 @@ export class GameRenderer {
     ctx.restore();
   }
 
-  // ── Landing Effects ──────────────────────────────────────────────────────
+  // ── Chalice (Challenge grand prize) ──────────────────────────────
+
+  /** Golden trophy: flared cup holding the liquid, slim stem, heavy foot. */
+  _drawChalice(ctx, w, h, skin, fill) {
+    const footH = h * 0.10;
+    const stemH = h * 0.30;
+    const cupH = h - footH - stemH;
+    const cupTop = -h / 2;
+    const stemTop = h / 2 - footH - stemH;   // bottom of the cup
+    const footTop = h / 2 - footH;
+    const gold = skin?.capGrad || ['#b45309', '#fbbf24', '#92400e'];
+
+    const grad = (y0, y1) => {
+      const g = ctx.createLinearGradient(-w / 2, y0, w / 2, y1);
+      g.addColorStop(0, gold[0]);
+      g.addColorStop(0.5, gold[1]);
+      g.addColorStop(1, gold[2]);
+      return g;
+    };
+
+    // Liquid inside the cup (drawn first so cup walls overlay its edges)
+    if (fill > 0.02) {
+      const liq = skin?.liquidGrad || ['rgba(253,224,71,0.45)', 'rgba(250,204,21,0.60)', 'rgba(180,83,9,0.80)'];
+      const surfaceY = stemTop - 3 - (cupH - 8) * fill;
+      const lg = ctx.createLinearGradient(0, surfaceY, 0, stemTop);
+      lg.addColorStop(0, liq[0]);
+      lg.addColorStop(0.5, liq[1]);
+      lg.addColorStop(1, liq[2]);
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(-w / 2 + 3, cupTop + 3, w - 6, cupH - 5, [0, 0, 7, 7]);
+      ctx.clip();
+      ctx.fillStyle = lg;
+      ctx.fillRect(-w / 2, surfaceY, w, stemTop - surfaceY + 4);
+      ctx.strokeStyle = skin?.liquidSurface || 'rgba(254,243,199,0.8)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(-w / 2 + 3, surfaceY);
+      ctx.lineTo(w / 2 - 3, surfaceY);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Cup: slightly flared walls with rounded bottom
+    ctx.fillStyle = grad(cupTop, stemTop);
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-w / 2 + 5, cupTop);
+    ctx.lineTo(-w / 2 + 1, stemTop - 8);
+    ctx.quadraticCurveTo(-w / 2 + 1, stemTop - 1, -w / 2 + 8, stemTop - 1);
+    ctx.lineTo(w / 2 - 8, stemTop - 1);
+    ctx.quadraticCurveTo(w / 2 - 1, stemTop - 1, w / 2 - 1, stemTop - 8);
+    ctx.lineTo(w / 2 - 5, cupTop);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Rim
+    ctx.fillStyle = grad(cupTop, cupTop + 4);
+    ctx.beginPath();
+    ctx.roundRect(-w / 2 + 2, cupTop - 1, w - 4, 4, 2);
+    ctx.fill();
+
+    // Stem
+    ctx.fillStyle = grad(stemTop, footTop);
+    ctx.fillRect(-w * 0.11, stemTop - 1, w * 0.22, stemH + 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-w * 0.11, stemTop - 1, w * 0.22, stemH + 2);
+
+    // Foot
+    ctx.fillStyle = grad(footTop, h / 2);
+    ctx.beginPath();
+    ctx.roundRect(-w * 0.36, footTop, w * 0.72, footH, [3, 3, 5, 5]);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.stroke();
+
+    // Engraving
+    ctx.fillStyle = skin?.labelColor || '#fef3c7';
+    ctx.font = '600 6px "Space Grotesk", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const word = skin?.labelWord || 'CHAMPION';
+    const gap = Math.min(2.0, Math.max(1.1, (w - 18) / Math.max(1, word.length - 1)));
+    let lx = -((word.length - 1) * gap) / 2;
+    for (const ch of word) { ctx.fillText(ch, lx, (cupTop + stemTop) / 2 + 2); lx += gap; }
+
+    // Highlight streak on the cup
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(-w / 2 + 5, cupTop + 8);
+    ctx.lineTo(-w / 2 + 3, stemTop - 10);
+    ctx.stroke();
+  }
+
+  // ── Landing Effects ────────────────────────────────────────────────────────
 
   triggerLandingParticles(x, y, isUpright, combo = 1) {
     this.effects.triggerLandingBurst(x, y, isUpright, combo);

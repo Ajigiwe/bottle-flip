@@ -18,7 +18,12 @@ A physics-based Bottle Flip game for mobile & desktop, built with **Matter.js**,
 ### Progression & Meta
 - **Achievements** — 9 unlockable badges (First Flip, Sharpshooter, Hat Trick, On Fire, Point Guard, High Roller, Sniper, Speed Demon, Cap Master) with toast notifications.
 - **Leaderboard** — local top-5 scores, tracked per game mode.
-- **Skins** — 5 containers, each a real physics object with its own silhouette, weight and material feel: 💧 Classic Water (default), 🍷 Bordeaux Red, 🍾 Champagne (sealed — always full), 🍼 Baby Bottle and 🥤 Steel Tumbler. Unlocked by beating higher difficulties (D1–D4), not by score.
+- **Skins** — 6 containers, each a real physics object with its own silhouette, weight and material feel: 💧 Classic Water (default), 🍷 Bordeaux Red, 🍾 Champagne (sealed — always full), 🍼 Baby Bottle, 🥤 Steel Tumbler and the 🏆 Golden Chalice (grand prize). Unlocked by beating higher difficulties (D1–D4); the Chalice only by completing the Challenge Gauntlet.
+
+### Challenge Gauntlet
+- **10 tasks** across Bronze / Silver / Gold tiers — streaks, bullseyes, headstands, difficulty climbs and score runs. Progress persists across sessions and accrues in **any** game mode.
+- **Prizes** — every task grants bonus points the moment it completes; finishing all 10 awards the exclusive 🏆 **Golden Chalice** skin (a real foot-stem-cup physics object with its own landing dynamics).
+- **Gauntlet mode** — a strict 5-life run on the home-screen mode selector. Fail five flips and the run ends, but completed tasks and prizes are always kept.
 
 ### Presentation
 - **Visuals** — stylized 3D-ish bottle rendering, studio lighting, wooden table with perspective legs, sloshing liquid, particle effects (pooled, 200 particles), confetti for cap landings, spin trail, power meter.
@@ -74,14 +79,15 @@ npm run preview   # serve the production build locally
 index.html            App shell, HUD, menus, modals
 src/
   main.js             Game orchestrator: modes, scoring, UI, screens
-  physics.js          Matter.js world: bottle, table, target, wind, landing detection
+  physics.js          Matter.js world: containers, table, target, wind, landing detection
+  challenges.js       Challenge Gauntlet: tasks, tiers, persistent progress, prizes
   render.js           Canvas renderer: bottle art, table, liquid, aim preview
   motion.js           MotionController: flick & swipe input, sensitivity
   audio.js            SoundManager: procedural Web Audio synth
   effects.js          EffectsEngine: particle pool, confetti, ripples
   achievements.js     Badge definitions + persistent unlock state
   leaderboard.js      Local top-5 score storage
-  skinSystem.js       Skin catalog (visuals + physics shape profiles) + unlock logic
+  skinSystem.js       Skin catalog (visuals + physics shape profiles) + unlock logic (incl. challenge-prize gate)
   eventBus.js         Tiny pub/sub event bus
   gameState.js        Frozen enums for game/physics states
 public/

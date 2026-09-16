@@ -13,8 +13,9 @@ export const GameState = Object.freeze({
 });
 
 export const GameMode = Object.freeze({
-  LIVES: 'LIVES',   // 3-lives classic mode
-  TIMED: 'TIMED',   // 30-second blitz mode — score as many flips as possible
+  LIVES: 'LIVES',       // endless classic mode
+  TIMED: 'TIMED',       // 30-second blitz mode — score as many flips as possible
+  CHALLENGE: 'CHALLENGE', // gauntlet mode — strict lives, tasks complete anywhere
 });
 
 /** States in which the bottle is actively moving (unsafe to reset mid-flight) */

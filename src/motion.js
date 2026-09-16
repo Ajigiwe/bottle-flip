@@ -147,8 +147,9 @@ export class MotionController {
       const frameTime = 1000 / 60;
       const gPerTick = this.physics.engine.gravity.y * this.physics.engine.gravity.scale * frameTime * frameTime;
       const flightTicks = (2 * Math.abs(upwardVel)) / gPerTick;
-      // Same calibrated clean-release model as the touch path.
-      const oneFlipOmega = (Math.PI * 2) / flightTicks * Math.exp(0.0012 * flightTicks) * 0.96;
+      // Same calibrated clean-release model as the touch path (0.92 centres a
+      // perfect release inside the sim-verified landing window).
+      const oneFlipOmega = (Math.PI * 2) / flightTicks * Math.exp(0.0012 * flightTicks) * 0.92;
       const flipSpin = -oneFlipOmega;
 
       this.sound.playWhoosh(power / 18);
@@ -208,11 +209,11 @@ export class MotionController {
     const gPerTick = this.physics.engine.gravity.y * this.physics.engine.gravity.scale * frameTime * frameTime;
     const flightTicks = (2 * Math.abs(throwVy)) / gPerTick;
     // Drag-adaptive clean release: frictionAir decays spin by exp(-k·T) over
-    // the arc, so pre-compensate; then a calibration factor that centres a
-    // perfect release in the middle of the sim-verified landing window
-    // (~±5% spin). Gesture sloppiness multiplies this down: the steepest
-    // penalty just crosses the guaranteed-fail boundary.
-    const oneFlipOmega = (Math.PI * 2) / flightTicks * Math.exp(0.0012 * flightTicks) * 0.96;
+    // the arc, so pre-compensate; then a calibration factor (0.92) that
+    // centres a perfect release in the middle of the sim-verified landing
+    // window (~±2.5% spin). Gesture sloppiness multiplies this down: the
+    // steepest penalty just crosses the guaranteed-fail boundary.
+    const oneFlipOmega = (Math.PI * 2) / flightTicks * Math.exp(0.0012 * flightTicks) * 0.92;
 
     // Spin penalty: a perfect straight-up drag is a clean release; sloppy
     // drags under-rotate the bottle so it lands mid-rotation or on its side

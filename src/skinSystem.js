@@ -11,6 +11,9 @@
  * prove you can flip at harder levels to earn the fancier glassware.
  * `unlockScore` is kept as a fallback gate so saved best-scores from the
  * old score-gated system still grant everything they legitimately earned.
+ *
+ * The Golden Chalice is the grand prize of the Challenge Gauntlet — it is
+ * never unlocked by score or difficulty, only by completing every task.
  */
 
 export const SKINS = [
@@ -104,19 +107,47 @@ export const SKINS = [
     bodyFill: 'rgba(148,163,184,0.55)',
     labelWord: 'STANLEY',
   },
+  {
+    id: 'chalice',
+    name: 'Golden Chalice',
+    desc: 'Grand prize — complete the Gauntlet',
+    icon: '🏆',
+    unlockScore: 0,
+    unlockDifficulty: 0,
+    shape: 'chalice',
+    challengePrize: true,   // only the Challenge Gauntlet grants this
+    liquidGrad: ['rgba(253,224,71,0.45)', 'rgba(250,204,21,0.60)', 'rgba(180,83,9,0.80)'],
+    liquidSurface: 'rgba(254,243,199,0.8)',
+    capGrad: ['#b45309', '#fbbf24', '#92400e'],   // polished gold
+    labelColor: '#fef3c7',
+    glassAlpha: [0.35, 0.15, 0.08, 0.15, 0.32],
+    borderAlpha: 0.65,
+    glow: 'rgba(251,191,36,0.55)',
+    bodyFill: 'rgba(180,120,20,0.72)',   // solid gold — no liquid visible
+    labelWord: 'CHAMPION',
+  },
 ];
 
 export class SkinSystem {
   constructor() {
     this.currentSkinId = localStorage.getItem('bottle_flip_skin') || 'classic';
+    // Set by the game once ChallengeSystem state is loaded; only a completed
+    // gauntlet flips this (see chalice.challengePrize).
+    this.challengeUnlocked = false;
+  }
+
+  setChallengeUnlocked(done) {
+    this.challengeUnlocked = !!done;
   }
 
   /**
    * A skin is unlocked when the player has beaten its difficulty at least
    * once this session, or (fallback for pre-existing saves) reached the
-   * legacy score milestone. D0 skins are always available.
+   * legacy score milestone. D0 skins are always available. Prize skins are
+   * gated purely on their challenge.
    */
   isUnlocked(skin, bestScore, bestDifficulty = 0) {
+    if (skin.challengePrize) return this.challengeUnlocked;
     return bestDifficulty >= (skin.unlockDifficulty || 0) ||
            bestScore >= (skin.unlockScore || 0);
   }

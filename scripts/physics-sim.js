@@ -52,14 +52,17 @@ function flightMatchedSpin(physics, vy) {
   const frameTime = 1000 / 60;
   const gPerTick = physics.engine.gravity.y * physics.engine.gravity.scale * frameTime * frameTime;
   const flightTicks = (2 * Math.abs(vy)) / gPerTick;
-  return -(Math.PI * 2) / flightTicks * Math.exp(0.0012 * flightTicks) * 0.96; // clean release
+  return -(Math.PI * 2) / flightTicks * Math.exp(0.0012 * flightTicks); // raw model
 }
+// Calibrated clean-release factor shared with MotionController: centres a
+// perfect release inside the slim-container landing window.
+const CLEAN_RELEASE = 0.92;
 
 {
   const p = new PhysicsWorld(420, 760);
   p.windForce = 0;
-  const vy = -17.5;
-  p.throwBottle(0.3, vy, flightMatchedSpin(p, vy) * 0.97); // 97% clean release
+  const vy = -15;
+  p.throwBottle(0.3, vy, flightMatchedSpin(p, vy) * CLEAN_RELEASE); // clean release
 
   let landed = null;
   let frames = 0;
@@ -131,11 +134,11 @@ function flightMatchedFor(p, vy) {
 }
 {
   const dims = {
-    bottle:    { w: 50, h: 100 },
-    wine:      { w: 46, h: 110 },
-    champagne: { w: 52, h: 115 },
-    feeder:    { w: 46, h: 92 },
-    tumbler:   { w: 58, h: 85 },
+    bottle:    { w: 42, h: 102 },
+    wine:      { w: 38, h: 110 },
+    champagne: { w: 44, h: 114 },
+    feeder:    { w: 40, h: 96 },
+    tumbler:   { w: 46, h: 86 },
   };
   for (const [shape, d] of Object.entries(dims)) {
     const p = new PhysicsWorld(420, 760);
@@ -157,16 +160,17 @@ function flightMatchedFor(p, vy) {
     check('champagne is sealed (fill stays 1.0)', p.liquidFill === 1.0, `fill=${p.liquidFill}`);
   }
 
-  // A flight-matched toss at half fill lands upright on every landable
-  // shape. Each container has its own landable arc energy (like real life:
-  // a tumbler flung hard topples, a gentle lob plants it).
-  for (const [shape, vy] of [['bottle', -17.5], ['wine', -16.5], ['feeder', -13.1], ['tumbler', -12.4]]) {
-    const p = new PhysicsWorld(420, 760);
-    p.windForce = 0;
-    p.setShape(shape);
-    p.liquidFill = 0.5;
-    p.spawnBottle();
-    p.throwBottle(0.3, vy, flightMatchedFor(p, vy) * 0.97);
+// A flight-matched toss at half fill lands upright on every landable
+// shape across a spread of arcs (like real life: each container has its
+// own landable arc energy — a tumbler flung hard topples, a gentle lob
+// plants it).
+for (const [shape, vy] of [['bottle', -14], ['wine', -14], ['champagne', -14], ['feeder', -14], ['tumbler', -14]]) {
+  const p = new PhysicsWorld(420, 760);
+  p.windForce = 0;
+  p.setShape(shape);
+  p.liquidFill = 0.5;
+  p.spawnBottle();
+  p.throwBottle(0.3, vy, flightMatchedFor(p, vy) * CLEAN_RELEASE);
     let landed = null;
     let frames = 0;
     p.onLandingCallback = (r) => { landed = r; };

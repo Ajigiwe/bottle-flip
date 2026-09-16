@@ -61,7 +61,9 @@ export class PhysicsWorld {
       bottleFullMassG: PhysicsWorld.SHAPES.bottle.fullG,
     });
     this.bottleMassG = this.bottleEmptyMassG;
-    this.shoulderWidth = 34;
+    // Shoulder taper scales with the silhouette so slimmer containers keep
+    // the same visual slope (top edge ≈ 32% of the base width).
+    this.shoulderWidth = Math.round(PhysicsWorld.SHAPES.bottle.w * 0.68);
 
     // Honest tip-over window. A 50px-wide base standing 100px tall tips past
     // ~14° from vertical; chamfered base edges and surface flex buy a few
@@ -136,24 +138,31 @@ export class PhysicsWorld {
   //  the water-fill selector; weight is fixed.
   static SHAPES = {
     bottle: {
-      w: 50, h: 100, neckW: 24, capH: 12, neckH: 10,
+      w: 42, h: 102, neckW: 20, capH: 12, neckH: 10,
       emptyG: 22, fullG: 522, restitution: 0.01, fillable: true,
     },
     wine: {
-      w: 46, h: 110, neckW: 15, capH: 7, neckH: 30,
+      w: 38, h: 110, neckW: 14, capH: 7, neckH: 30,
       emptyG: 400, fullG: 1200, restitution: 0.02, fillable: true,
     },
     champagne: {
-      w: 52, h: 115, neckW: 17, capH: 9, neckH: 32,
+      w: 44, h: 114, neckW: 16, capH: 9, neckH: 32,
       emptyG: 900, fullG: 1250, restitution: 0.02, fillable: false, fixedFill: 1.0,
     },
     feeder: {
-      w: 46, h: 92, neckW: 30, capH: 9, neckH: 6,
+      w: 40, h: 96, neckW: 24, capH: 9, neckH: 6,
       emptyG: 40, fullG: 440, restitution: 0.04, fillable: true,
     },
     tumbler: {
-      w: 58, h: 85, neckW: 52, capH: 3, neckH: 4,
+      w: 46, h: 86, neckW: 40, capH: 3, neckH: 4,
       emptyG: 350, fullG: 950, restitution: 0.005, fillable: true,
+    },
+    // Grand prize: golden trophy from the Challenge Gauntlet. Foot-stem-cup
+    // silhouette built by _buildChaliceBody(); neck/cap fields exist so the
+    // shared silhouette plumbing never reads undefined.
+    chalice: {
+      w: 46, h: 100, neckW: 12, capH: 6, neckH: 4,
+      emptyG: 350, fullG: 700, restitution: 0.01, fillable: true,
     },
   };
 
@@ -228,6 +237,7 @@ export class PhysicsWorld {
    * the bottle tips over honestly when its centre of mass passes the base.
    */
   _buildBottleBody(density, restitution) {
+    if (this.shapeId === 'chalice') return this._buildChaliceBody(density, restitution);
     const h = this.bottleHeight;
     const capH = this.capHeight;
     const neckH = this.neckHeight;
@@ -269,9 +279,11 @@ export class PhysicsWorld {
       parts,
       // High contact friction is what makes real flips work: the flat base
       // slapping the table absorbs the residual rotation impulsively (grip),
-      // instead of the bottle skating off on its edge.
-      friction: 1.5,
-      frictionStatic: 1.8,
+      // instead of the bottle skating off on its edge. Slimmer silhouettes
+      // have a shorter grip torque arm, so friction runs higher to keep the
+      // post-touchdown landing window player-friendly (~±5% spin).
+      friction: 2.2,
+      frictionStatic: 2.6,
       frictionAir: 0.0012,
       restitution,            // dead: real bottles thud, they don't bounce
       label: 'bottle',
@@ -283,6 +295,46 @@ export class PhysicsWorld {
       this.bottleEmptyMassG + (this.bottleFullMassG - this.bottleEmptyMassG) * this.liquidFill
     );
 
+    return bottle;
+  }
+
+  /**
+   * Trophy chalice: dense foot, slim stem, wide cup. The heavy foot gives
+   * the honest low centre of mass; the cup holds the "liquid" (fill still
+   * applies, like wine in a trophy — this is a game, after all).
+   */
+  _buildChaliceBody(density, restitution) {
+    const h = this.bottleHeight;
+    const w = this.bottleWidth;
+    const footH = Math.round(h * 0.10);
+    const stemH = Math.round(h * 0.30);
+    const cupH = h - footH - stemH;
+    const footY = h / 2 - footH / 2;
+    const stemY = h / 2 - footH - stemH / 2;
+    const cupY = -h / 2 + cupH / 2;
+
+    const parts = [
+      // Wide heavy foot: a trophy stands on its base, and the base must be
+      // proportionally as wide as a bottle's for honest upright stability.
+      Bodies.rectangle(0, footY, w * 0.92, footH, {
+        density: density * 2.4, chamfer: { radius: 3 },
+      }),
+      Bodies.rectangle(0, stemY, w * 0.24, stemH, { density: density * 1.2 }),
+      Bodies.rectangle(0, cupY, w, cupH, { density }),
+    ];
+    for (const part of parts) part.label = 'bottle';
+
+    const bottle = Body.create({
+      parts,
+      friction: 2.2,
+      frictionStatic: 2.6,
+      frictionAir: 0.0012,
+      restitution,
+      label: 'bottle',
+    });
+    this.bottleMassG = Math.round(
+      this.bottleEmptyMassG + (this.bottleFullMassG - this.bottleEmptyMassG) * this.liquidFill
+    );
     return bottle;
   }
 
@@ -299,13 +351,14 @@ export class PhysicsWorld {
     this.neckHeight = s.neckH;
     this.bottleEmptyMassG = s.emptyG;
     this.bottleFullMassG = s.fullG;
+    this.shoulderWidth = Math.round(s.w * 0.68);
     if (this.shapeFixedFill != null) this.liquidFill = this.shapeFixedFill;
 
     const tablePos = this.table.position;
-    const tableWidth = this.table.customData.width;
     const platformHeight = this.table.customData.height;
 
-    const bottleX = tablePos.x - tableWidth * 0.35;
+    // Spawn dead-centre on the table: the bullseye offset (+25%) then reads
+    // clearly to the right of the bottle instead of overlapping it.
 
     // Water fill affects physics like the real thing:
     // empty = light, slightly bouncy, high CoM (hardest to land)
@@ -328,7 +381,7 @@ export class PhysicsWorld {
       if (v.y > bottleBottomY) bottleBottomY = v.y;
     }
     Body.setPosition(this.bottle, {
-      x: bottleX,
+      x: tablePos.x,
       y: this.bottle.position.y + (tableTopY - bottleBottomY),
     });
 
