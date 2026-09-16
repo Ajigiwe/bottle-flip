@@ -120,7 +120,6 @@ const CLEAN_RELEASE = 0.92;
   const p = new PhysicsWorld(420, 760);
   p.windForce = 0;
   p.throwBottle(0.2, -8.0, -0.05); // weak toss, almost no spin → flops over
-
   let landed = null;
   let frames = 0;
   p.onLandingCallback = (r) => { landed = r; };
@@ -129,6 +128,35 @@ const CLEAN_RELEASE = 0.92;
   const onSide = p.bottle ? bottleRestState(p).tilt > 0.5 : false;
   check('under-powered flop judged as fail', !!landed && landed.isUpright === false, landed ? `reason=${landed.reason}` : 'no callback');
   check('ended on its side, not standing', onSide);
+  check('clean flop is NOT a near miss', !!landed && landed.nearMiss !== true);
+}
+
+// ── Test 4b: near-miss detection — "SO CLOSE!" ────────────────────────────
+// A throw that stands nearly upright on its base and then topples must
+// flag nearMiss (the game toasts "SO CLOSE!"). Two discriminators must
+// hold: a genuine stand-and-topple flags it, and a fast flip-through
+// (which rotates past vertical but never holds a near-upright rest pose)
+// must not. See the near-miss tracking note in physics.js update().
+{
+  const p = new PhysicsWorld(420, 760);
+  p.windForce = 0;
+  p.throwBottle(5, -12, -1.3); // arrives near-vertical, balances, topples
+  let landed = null;
+  let frames = 0;
+  p.onLandingCallback = (r) => { landed = r; };
+  while (!landed && frames < 1200) { p.update(1000 / 60); frames++; }
+  check('stand-then-topple judged as fail', !!landed && landed.isUpright === false);
+  check('stand-then-topple flags nearMiss', !!landed && landed.nearMiss === true);
+
+  const q = new PhysicsWorld(420, 760);
+  q.windForce = 0;
+  q.throwBottle(3.5, -12, -2.4); // fast double-flip that tumbles through vertical
+  let landed2 = null;
+  let frames2 = 0;
+  q.onLandingCallback = (r) => { landed2 = r; };
+  while (!landed2 && frames2 < 1200) { q.update(1000 / 60); frames2++; }
+  check('flip-through judged as fail', !!landed2 && landed2.isUpright === false);
+  check('flip-through does NOT flag nearMiss', !!landed2 && landed2.nearMiss === false);
 }
 
 // ── Test 5: container skins — real shapes, real weights, honest flips ─────

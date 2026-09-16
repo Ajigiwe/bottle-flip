@@ -604,7 +604,12 @@ class BottleFlipGame {
         }
       }
 
-      this.showToast('❌ MISSED', 'Keep trying!', true);
+      // Near miss: the bottle stood nearly upright at rest before toppling.
+      if (result.nearMiss) {
+        this.showToast('😰 SO CLOSE!', 'It nearly stood — then toppled!', true);
+      } else {
+        this.showToast('❌ MISSED', 'Keep trying!', true);
+      }
       // Let the failed pose sit on screen a beat longer than a success so
       // the player can see HOW it fell before the reset.
       setTimeout(() => this.resetBottle(), 1900);

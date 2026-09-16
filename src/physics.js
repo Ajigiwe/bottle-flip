@@ -418,6 +418,8 @@ export class PhysicsWorld {
 
     this._touchedTable = false;
     this._verdictIssued = false;
+    this._minHeldTilt = Infinity; // closest-to-upright pose HELD at rest after touchdown
+    this._slowRing = [];          // last 3 slow-frame tilts (the hold requirement)
     this.state = 'FLIGHT';
     this.flightTime = 0;
     this.settleTimer = 0;
@@ -509,6 +511,34 @@ export class PhysicsWorld {
         // Judged once it has genuinely come to rest: near-zero linear AND
         // angular speed, held for a sustained window.
         const atRest = linearSpeed < 0.35 && angularSpeed < 0.06;
+
+        // Near-miss tracking: record the closest-to-upright pose the bottle
+        // HELD while rotating slowly (quasi-static) after touchdown. A bottle
+        // that stands nearly vertical on its base and then topples is a
+        // "so close!" near miss — and it can hold that pose while still
+        // sliding, so the gate is angular-only. Fast chaotic rotation through
+        // vertical (flip-throughs) never holds a slow pose, so it never
+        // counts. Sweep-verified separation (300 throws): genuine stands hold
+        // ≤ 13°, slow mid-topple creeps start at 16° (past the ~14° tip-over
+        // angle they can no longer be static), tumble-throughs bottom out at
+        // 34° — so a 0.25 rad threshold over a 3-consecutive-slow-frame hold
+        // classifies every case cleanly.
+        if (this._touchedTable && this.bottle) {
+          if (angularSpeed < 0.06) {
+            const n2 = Math.PI * 2;
+            const nrm = ((this.bottle.angle % n2) + n2) % n2;
+            const slowTilt = nrm > Math.PI ? n2 - nrm : nrm;
+            this._slowRing.push(slowTilt);
+            if (this._slowRing.length > 3) this._slowRing.shift();
+            if (this._slowRing.length === 3) {
+              const held = Math.min(...this._slowRing);
+              if (held < this._minHeldTilt) this._minHeldTilt = held;
+            }
+          } else {
+            this._slowRing.length = 0;
+          }
+        }
+
         if (atRest && touchdownDelayPassed) {
           this.settleTimer += deltaTime;
           if (this.settleTimer > 250) {
@@ -543,7 +573,7 @@ export class PhysicsWorld {
         if (this.bottle.position.y > this.height + 200) {
           this.state = 'FAILED';
           if (this.onLandingCallback) {
-            this.onLandingCallback({ isUpright: false, isTarget: false, reason: 'OUT_OF_BOUNDS' });
+            this.onLandingCallback({ isUpright: false, isTarget: false, reason: 'OUT_OF_BOUNDS', nearMiss: this._minHeldTilt < 0.25 });
           }
         }
       }
@@ -627,7 +657,10 @@ export class PhysicsWorld {
     } else {
       this.state = 'FAILED';
       if (this.onLandingCallback) {
-        this.onLandingCallback({ isUpright: false, isTarget: false, reason: 'TUMBLED' });
+        // nearMiss: the bottle held a near-upright pose (within the ~14°
+        // tip-over angle) at rest before toppling — the game shows a
+        // "SO CLOSE!" toast. See the near-miss tracking note in update().
+        this.onLandingCallback({ isUpright: false, isTarget: false, reason: 'TUMBLED', nearMiss: this._minHeldTilt < 0.25 });
       }
     }
   }
