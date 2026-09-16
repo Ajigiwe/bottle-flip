@@ -30,8 +30,10 @@ class BottleFlipGame {
 
     // Challenge Gauntlet
     this.challenges = new ChallengeSystem();
+    this.stats = this.challenges.stats; // career stats (bullseyes, streak, gauntlet runs)
     this.challengeLives = CHALLENGE_LIVES;
     this._challengePointsPool = 0; // bonus points claimed during this game
+    this._dailyBankedPoints = 0;   // daily-challenge prize banked this game
 
     // Subsystems
     this.leaderboard = new Leaderboard();
@@ -45,6 +47,9 @@ class BottleFlipGame {
 
     this.initUI();
     this.initGame();
+
+    // Dev-only handle for in-page integration testing.
+    if (import.meta.env.DEV) window.__flipPure = this;
   }
 
   // ── UI Setup ─────────────────────────────────────────────────────────────
@@ -116,7 +121,11 @@ class BottleFlipGame {
     this.skinsBtn        = document.getElementById('skins-btn');
     this.closeSkinsBtn   = document.getElementById('close-skins-btn');
     this.challengesBtn   = document.getElementById('challenges-btn');
+    this.questsBtn       = this.challengesBtn;
     this.closeChallengesBtn = document.getElementById('close-challenges-btn');
+    this.statsBtn        = document.getElementById('stats-btn');
+    this.closeStatsBtn   = document.getElementById('close-stats-btn');
+    this.statsModal      = document.getElementById('stats-modal');
 
     // Audio initial state
     if (soundManager.isMuted) {
@@ -125,6 +134,7 @@ class BottleFlipGame {
     }
 
     this._bindEvents();
+    this._updateQuestBadge();
     this._renderSkinPicker();
     this._renderAchievements();
     this._renderLeaderboard();
@@ -279,6 +289,17 @@ class BottleFlipGame {
       this.challengesModal.classList.add('hidden');
     });
 
+    // Stats
+    this.statsBtn?.addEventListener('click', () => {
+      soundManager.playClick();
+      this._renderStats();
+      this.statsModal.classList.remove('hidden');
+    });
+    this.closeStatsBtn?.addEventListener('click', () => {
+      soundManager.playClick();
+      this.statsModal.classList.add('hidden');
+    });
+
     // Game over
     this.gameoverPlayBtn?.addEventListener('click', () => {
       soundManager.playClick();
@@ -315,6 +336,20 @@ class BottleFlipGame {
     this.updateFlipsDisplay();
     this.achievements.resetSession();
     this.challenges.resetSession();
+    this._gauntletWon = false; // one win counted per run
+    if (this.gameMode === GameMode.CHALLENGE) this.stats.startGauntletRun();
+    // Roll a new daily task if the calendar day (or the task) changed.
+    this.challenges.daily._load();
+
+    // Bank the daily prize if today's task was completed earlier but not
+    // yet claimed (e.g. the app was closed right after finishing it).
+    if (this.challenges.daily.isDone && !this.challenges.daily.isClaimed) {
+      this.challenges.daily.claim();
+      const dailyPrize = this.challenges.daily.prizeAmount();
+      this._dailyBankedPoints = dailyPrize;
+      this.score += dailyPrize;
+    }
+
     this.physics.resetDifficulty();
 
     // Bank any challenge bonuses completed earlier but not yet claimed
@@ -392,14 +427,13 @@ class BottleFlipGame {
   _updateChallengeBanner() {
     if (this.challengeLivesVal) {
       this.challengeLivesVal.textContent = `${this.challengeLives}`;
-    }
-    const taskEl = document.getElementById('challenge-next-task');
-    if (taskEl) {
-      const next = CHALLENGES.find(c => !this.challenges.progress[c.id]?.done);
-      taskEl.textContent = next
-        ? `${next.icon} ${next.title} · ${this.challenges.progressLabel(next)}`
-        : '🏆 All challenges complete!';
-    }
+    }      const taskEl = document.getElementById('challenge-next-task');
+      if (taskEl) {
+        const next = CHALLENGES.find(c => !this.challenges.progress[c.id]?.done);
+        taskEl.textContent = next
+          ? `${next.icon} ${next.title} · ${this.challenges.progressLabel(next)}`
+          : `🏆 All challenges complete! · ${this.stats.gauntletWins} wins`;
+      }
   }
 
   updateSensitivityLabel(val) {
@@ -482,9 +516,22 @@ class BottleFlipGame {
         streak: this.streak,
         score: this.score,
         difficulty: this.physics.difficulty,
+        points,
       });
       for (const c of completed) this._grantChallengePrize(c);
+
+      // Daily challenge: same landing stream feeds today's task.
+      const dailyDone = this.challenges.daily.recordLanding(result, { streak: this.streak, points });
+      if (dailyDone) this._grantDailyPrize();
       this._updateChallengeBanner();
+      this._updateQuestBadge();
+
+      // Gauntlet run won: every challenge finished during this run.
+      if (this.gameMode === GameMode.CHALLENGE && !this._gauntletWon
+          && CHALLENGES.every(c => this.challenges.progress[c.id]?.done)) {
+        this._gauntletWon = true;
+        this.stats.winGauntletRun();
+      }
 
       const newBest = this.score > this.bestScore;
       if (newBest) {
@@ -569,6 +616,7 @@ class BottleFlipGame {
     clearInterval(this._timerInterval);
     soundManager.stopBgMusic();
     this.challengeBanner?.classList.add('hidden');
+    this.stats.refresh(); // stats modal + gameover read lifetime counters
 
     // Submit to leaderboard
     this.leaderboard.submit(this.score, this.gameMode);
@@ -622,6 +670,32 @@ class BottleFlipGame {
     soundManager.playCrowdCheer(8);
   }
 
+  /** Grant the daily challenge's prize the moment today's task completes. */
+  _grantDailyPrize() {
+    const d = this.challenges.daily;
+    if (d.isClaimed) return;
+    d.claim();
+
+    const amount = d.prizeAmount();
+    this._dailyBankedPoints += amount;
+    this.score += amount;
+    this.scoreVal.textContent = this.score;
+    if (this.score > this.bestScore) {
+      this.bestScore = this.score;
+      localStorage.setItem('bottle_flip_best', this.bestScore.toString());
+      this.bestVal.textContent = this.bestScore;
+      if (this.homeBestVal) this.homeBestVal.textContent = this.bestScore;
+    }
+
+    const streakDays = d.liveStreak;
+    this._showChallengeToast({
+      tier: 'gold',
+      title: `Daily ${d.entry.title}${streakDays > 1 ? ` (🔥 ${streakDays}-day streak!)` : ''}`,
+      prize: { label: `+${amount} bonus` },
+    });
+    soundManager.playCrowdCheer(8);
+  }
+
   /** Persist the challenge-unlocked flag into the skin system + skin picker. */
   _syncChallengeState() {
     this.skinSystem.setChallengeUnlocked(this.challenges.completedCount >= CHALLENGES.length);
@@ -641,7 +715,7 @@ class BottleFlipGame {
   _renderChallenges() {
     const grid = document.getElementById('challenges-grid');
     if (!grid) return;
-    grid.innerHTML = CHALLENGES.map(c => {
+    grid.innerHTML = this._dailyCardHtml() + CHALLENGES.map(c => {
       const meta = TIER_META[c.tier];
       const done = this.challenges.progress[c.id]?.done;
       const ratio = this.challenges.ratioFor(c);
@@ -664,6 +738,65 @@ class BottleFlipGame {
         </div>
       `;
     }).join('');
+  }
+
+  // ── Stats Screen Render ─────────────────────────────────────────────
+
+  _renderStats() {
+    const grid = document.getElementById('stats-grid');
+    if (!grid) return;
+    this.stats.refresh();
+    const cards = [
+      { icon: '🎯', label: 'CAREER BULLSEYES', value: this.stats.bullseyes },
+      { icon: '🔥', label: 'BEST STREAK',       value: this.stats.bestStreak },
+      { icon: '🏆', label: 'GAUNTLET RUNS WON', value: this.stats.gauntletWins },
+      { icon: '🍾', label: 'TOTAL LANDINGS',    value: this.stats.landings },
+      { icon: '⚔️', label: 'GAUNTLET RUNS',     value: this.stats.gauntletRuns },
+    ];
+    const winRate = this.stats.gauntletRuns > 0
+      ? Math.round(100 * this.stats.gauntletWins / this.stats.gauntletRuns)
+      : null;
+    grid.innerHTML = cards.map(c => `
+      <div class="stat-card">
+        <span class="stat-icon">${c.icon}</span>
+        <span class="stat-value">${c.value}</span>
+        <span class="stat-label">${c.label}</span>
+      </div>
+    `).join('') + (winRate !== null ? `
+      <div class="stat-card stat-card-wide">
+        <span class="stat-label">GAUNTLET WIN RATE</span>
+        <div class="stat-bar"><div class="stat-fill" style="width:${winRate}%"></div></div>
+        <span class="stat-value stat-value-small">${winRate}%</span>
+      </div>
+    ` : '');
+  }
+  _dailyCardHtml() {
+    const d = this.challenges.daily;
+    const e = d.entry;
+    const desc = e.descTemplate.replace('{goal}', d.goal);
+    const streakDays = d.liveStreak;
+    return `
+      <div class="challenge-card daily tier-gold ${d.isDone ? 'done' : ''}">
+        <div class="challenge-head">
+          <span class="challenge-icon">${d.isDone ? '✅' : e.icon}</span>
+          <div class="challenge-titles">
+            <span class="challenge-title">Daily — ${e.title}</span>
+            <span class="challenge-desc">${desc}</span>
+          </div>
+          <span class="challenge-tier daily-streak">🔥 ${streakDays}-day streak</span>
+        </div>
+        <div class="challenge-bar"><div class="challenge-fill" style="width:${Math.round(d.ratio() * 100)}%"></div></div>
+        <div class="challenge-foot">
+          <span class="challenge-progress">${d.label()}</span>
+          <span class="challenge-prize">💰 ${d.prizeLabel()}${streakDays > 0 && !d.isDone ? ' (streak bonus)' : ''}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  /** Red dot on the QUESTS button while today's daily is unfinished. */
+  _updateQuestBadge() {
+    this.questsBtn?.classList.toggle('has-notification', !this.challenges.daily.isDone);
   }
 
   // ── Toast Notifications ───────────────────────────────────────────────────

@@ -681,6 +681,7 @@ html, body {
   align-items: center;
   justify-content: center;
   padding: 20px;
+  overflow-y: auto; /* tall modals (quests, skins) scroll instead of clipping */
 }
 
 .modal-card {
@@ -695,6 +696,10 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* margin:auto centers within the backdrop while still allowing it to
+     scroll when the card is taller than the screen (auto margins collapse
+     to 0 on overflow — plain flex centering would clip the top). */
+  margin: auto;
 }
 
 .modal-icon-badge {
@@ -1289,3 +1294,99 @@ html, body {
 }
 
 .challenge-card.done .challenge-prize { color: var(--accent-gold); }
+
+/* Daily challenge card — gold accent, distinct from tier cards */
+.challenge-card.daily {
+  border-color: rgba(251,191,36,0.35);
+  background: linear-gradient(135deg, rgba(251,191,36,0.10), rgba(251,191,36,0.03));
+}
+
+.challenge-card.daily .challenge-title { color: var(--accent-gold); }
+
+.daily-streak {
+  color: #fbbf24;
+  white-space: nowrap;
+}
+
+/* QUESTS button notification dot — visible while the daily is unfinished */
+.home-secondary-btn.has-notification {
+  position: relative;
+}
+
+.home-secondary-btn.has-notification::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239,68,68,0.8);
+  animation: quest-dot-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes quest-dot-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.75); opacity: 0.6; }
+}
+
+/* Career stats grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+  width: 100%;
+}
+
+.stat-card {
+  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 14px;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.stat-card-wide {
+  grid-column: 1 / -1;
+  gap: 8px;
+}
+
+.stat-icon { font-size: 1.5rem; line-height: 1; }
+
+.stat-value {
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--accent-gold);
+  line-height: 1.1;
+}
+
+.stat-value-small { font-size: 1.1rem; }
+
+.stat-label {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+}
+
+.stat-bar {
+  height: 6px;
+  width: 100%;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+}
+
+.stat-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #38bdf8, #fbbf24);
+  transition: width 0.5s cubic-bezier(0.16,1,0.3,1);
+}

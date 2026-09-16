@@ -225,6 +225,12 @@
               </svg>
               <span>BADGES</span>
             </button>
+            <button id="stats-btn" class="home-secondary-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="4" width="3" height="14"/>
+              </svg>
+              <span>STATS</span>
+            </button>
             <button id="challenges-btn" class="home-secondary-btn">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M8 21h8M12 17v4M17 4h3v3a5 5 0 01-5 5M7 4H4v3a5 5 0 005 5"/><path d="M17 3H7v6a5 5 0 0010 0V3z"/>
@@ -435,10 +441,21 @@
     <div id="challenges-modal" class="modal-backdrop hidden">
       <div class="modal-card wide-card">
         <div class="modal-header"><h2>🏆 Challenge Gauntlet</h2>
-        <p class="modal-hint">Complete tasks to earn prizes. Finish every task to claim the Golden Chalice. Tasks progress in any mode; Gauntlet mode adds a strict 5-life run.</p>
+        <p class="modal-hint">Complete tasks to earn prizes. Finish every task to claim the Golden Chalice. Tasks progress in any mode; Gauntlet mode adds a strict 5-life run. The Daily Challenge rerolls every day — complete it each day to grow your streak bonus.</p>
         </div>
         <div class="challenges-grid" id="challenges-grid"></div>
         <button id="close-challenges-btn" class="modal-primary-btn margin-top-md">CLOSE</button>
+      </div>
+    </div>
+
+    <!-- ── STATS MODAL ───────────────────────────────────────────────── -->
+    <div id="stats-modal" class="modal-backdrop hidden">
+      <div class="modal-card wide-card">
+        <div class="modal-header"><h2>📊 Career Stats</h2>
+        <p class="modal-hint">Your lifetime numbers. Bullseyes, streaks and gauntlet victories accumulate across every mode.</p>
+        </div>
+        <div class="stats-grid" id="stats-grid"></div>
+        <button id="close-stats-btn" class="modal-primary-btn margin-top-md">CLOSE</button>
       </div>
     </div>
 

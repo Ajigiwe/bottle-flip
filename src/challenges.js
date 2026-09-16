@@ -127,6 +127,7 @@ export class ChallengeSystem {
     this._load();
     // Session counters (reset when a new game starts; bullseye count is
     // lifetime and lives in its own persisted counter).
+    this.stats = new CareerStats();
     this._session = {
       streak: 0,
       maxStreak: 0,
@@ -137,6 +138,8 @@ export class ChallengeSystem {
       headstands: 0,
     };
     this._lifetimeBullseyes = parseInt(localStorage.getItem('bf_total_bullseyes') || '0', 10);
+    this.daily = new DailyChallenge();  // seeded daily task + day streak
+
     this.onUnlocked = null;   // (challenge) => void
     this._listenersBound = false;
   }
@@ -253,5 +256,234 @@ export class ChallengeSystem {
       }
       return sum;
     }, 0);
+  }
+}
+
+// ── Career Stats ─────────────────────────────────────────────────────────
+//
+// Lifetime aggregates for the stats screen. Existing keys ('bf_total_*',
+// 'bf_max_streak') stay authoritative; new gauntlet counters live in one
+// JSON blob ('bf_gauntlet_stats_v1'). Every value is integer-typed and
+// defensively clamped on load.
+
+const GAUNTLET_STATS_KEY = 'bf_gauntlet_stats_v1';
+
+export class CareerStats {
+  constructor() {
+    this._load();
+  }
+
+  _load() {
+    const int = (v) => {
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    };
+    this.bullseyes = int(localStorage.getItem('bf_total_bullseyes'));
+    this.landings = int(localStorage.getItem('bf_total_landings'));
+    this.bestStreak = int(localStorage.getItem('bf_max_streak'));
+    let g = {};
+    try { g = JSON.parse(localStorage.getItem(GAUNTLET_STATS_KEY) || '{}') || {}; } catch (_) {}
+    this.gauntletWins = int(g.wins);
+    this.gauntletRuns = int(g.runs);
+  }
+
+  /** Refresh from storage (main.js owns the bf_total_* keys and writes them directly). */
+  refresh() { this._load(); }
+
+  _saveGauntlet() {
+    localStorage.setItem(GAUNTLET_STATS_KEY, JSON.stringify({
+      wins: this.gauntletWins, runs: this.gauntletRuns,
+    }));
+  }
+
+  /** Count a gauntlet run the moment it begins. */
+  startGauntletRun() {
+    this.gauntletRuns++;
+    this._saveGauntlet();
+  }
+
+  /** Count a won gauntlet run (cleared every task outstanding at start). */
+  winGauntletRun() {
+    this.gauntletWins++;
+    this._saveGauntlet();
+  }
+}
+
+// ── Daily Challenge ──────────────────────────────────────────────────────
+//
+// One seeded task per calendar day: the local date string drives a
+// deterministic hash that picks both the task and its goal tier, so the
+// same day always rolls the same challenge. Counters persist across games
+// and sessions, and completing the daily extends a consecutive-day streak
+// that raises the point prize.
+
+const DAILY_STATE_KEY = 'bf_daily_v1';
+const DAILY_STREAK_KEY = 'bf_daily_streak_v1';
+
+function dateKeyStr(offsetDays = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+const todayKey = () => dateKeyStr(0);
+
+/** Shift a YYYY-MM-DD key by delta days (handles month/year boundaries). */
+function shiftDateKey(key, delta) {
+  const [y, m, d] = key.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + delta);
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${dt.getFullYear()}-${mm}-${dd}`;
+}
+
+/** FNV-1a → 32-bit unsigned seed from a date string. */
+function hashSeed(str) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/** Tasks eligible for the daily roll. {goal} in descTemplate is filled in. */
+export const DAILY_POOL = [
+  { id: 'd-landings',   icon: '🍾', title: 'Warm-Up',       descTemplate: 'Land {goal} flips upright today',  goals: [5, 8, 12],      stat: 'landings' },
+  { id: 'd-streak',     icon: '🔥', title: 'Hot Streak',    descTemplate: 'Reach a {goal}-flip streak today', goals: [3, 4, 5],       stat: 'maxStreak' },
+  { id: 'd-bullseyes',  icon: '🎯', title: 'Sharpshooter',  descTemplate: 'Hit {goal} bullseyes today',       goals: [2, 3, 4],       stat: 'bullseyes' },
+  { id: 'd-headstands', icon: '👑', title: 'Crown Day',     descTemplate: 'Land {goal} cap landings today',   goals: [1, 1, 2],       stat: 'headstands' },
+  { id: 'd-points',     icon: '💎', title: 'Point Harvest', descTemplate: 'Earn {goal} points today',         goals: [400, 650, 900], stat: 'points' },
+];
+
+export class DailyChallenge {
+  constructor() {
+    this._date = todayKey();
+    this._load();
+  }
+
+  _blankState(taskId, goal) {
+    return {
+      date: this._date, taskId, goal,
+      landings: 0, maxStreak: 0, bullseyes: 0, headstands: 0, points: 0,
+      done: false, claimed: false,
+    };
+  }
+
+  _load(dateOverride) {
+    // Refresh the date on every load so the daily re-rolls even if the app
+    // was left open past midnight. (Tests may inject a fixed date.)
+    this._date = dateOverride || todayKey();
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(DAILY_STATE_KEY) || 'null'); } catch (_) {}
+    if (saved && saved.date === this._date && DAILY_POOL.some(e => e.id === saved.taskId)) {
+      // Same day → restore counters so progress spans games and sessions.
+      this.state = { ...this._blankState(saved.taskId, saved.goal || 1), ...saved, date: this._date };
+    } else {
+      // New day (or corrupted save) → roll a fresh seeded task.
+      const { id, goal } = this._roll(this._date);
+      this.state = this._blankState(id, goal);
+      this._save();
+    }
+    this._streak = this._loadStreak();
+  }
+
+  _save() {
+    localStorage.setItem(DAILY_STATE_KEY, JSON.stringify(this.state));
+  }
+
+  _loadStreak() {
+    try {
+      const s = JSON.parse(localStorage.getItem(DAILY_STREAK_KEY) || 'null');
+      if (s && typeof s.count === 'number' && typeof s.last === 'string') {
+        return { count: s.count, last: s.last };
+      }
+    } catch (_) {}
+    return { count: 0, last: '' };
+  }
+
+  /** Deterministic pick from the date string. */
+  _roll(dateKey) {
+    const h = hashSeed('bottleflip-' + dateKey);
+    const entry = DAILY_POOL[h % DAILY_POOL.length];
+    const goal = entry.goals[Math.floor(h / DAILY_POOL.length) % entry.goals.length];
+    return { id: entry.id, goal };
+  }
+
+  get entry() { return DAILY_POOL.find(e => e.id === this.state.taskId) || DAILY_POOL[0]; }
+  get goal() { return this.state.goal; }
+  get isDone() { return !!this.state.done; }
+  get isClaimed() { return !!this.state.claimed; }
+
+  /**
+   * Streak as of right now: a run completed today or yesterday is still
+   * alive; anything older has lapsed and reads as 0 until today's is done.
+   */
+  get liveStreak() { return this._liveStreakFor(todayKey()); }
+
+  /** Liveness math relative to an explicit "today" (tests inject timelines). */
+  _liveStreakFor(todayStr) {
+    const { count, last } = this._streak;
+    if (last === todayStr || last === shiftDateKey(todayStr, -1)) return count;
+    return 0;
+  }
+
+  /** Prize scales with the streak: +200 base, +100 per streak day, cap +700. */
+  prizeAmount() { return 200 + 100 * Math.min(this.liveStreak, 5); }
+  prizeLabel() { return `+${this.prizeAmount()} bonus`; }
+
+  /**
+   * Feed one landing result into today's counters. Returns true on the
+   * landing that completes the daily (streak advances at that moment).
+   */
+  recordLanding(result, ctx = {}) {
+    if (this.state.done) return false;
+    const s = this.state;
+    if (result.isUpright) {
+      s.landings++;
+      if (typeof ctx.streak === 'number') s.maxStreak = Math.max(s.maxStreak, ctx.streak);
+      if (result.isTarget) s.bullseyes++;
+      if (result.isHeadstand) s.headstands++;
+    }
+    if (typeof ctx.points === 'number') s.points += ctx.points;
+
+    const val = s[this.entry.stat] || 0;
+    if (val >= s.goal) {
+      s.done = true;
+      this._advanceStreak();
+      this._save();
+      return true;
+    }
+    this._save();
+    return false;
+  }
+
+  _advanceStreak() {
+    if (this._streak.last === this._date) return; // already counted today
+    this._streak = {
+      count: this._streak.last === shiftDateKey(this._date, -1) ? this._streak.count + 1 : 1,
+      last: this._date,
+    };
+    localStorage.setItem(DAILY_STREAK_KEY, JSON.stringify(this._streak));
+  }
+
+  claim() {
+    this.state.claimed = true;
+    this._save();
+  }
+
+  /** Progress ratio 0..1 for the progress bar. */
+  ratio() {
+    if (this.state.done) return 1;
+    return Math.min(1, (this.state[this.entry.stat] || 0) / this.state.goal);
+  }
+
+  /** Human-readable progress, e.g. "3/5". */
+  label() {
+    if (this.state.done) return '✓';
+    const val = Math.min(this.state[this.entry.stat] || 0, this.state.goal);
+    return this.entry.stat === 'points' ? `${val}/${this.state.goal} pts` : `${val}/${this.state.goal}`;
   }
 }
