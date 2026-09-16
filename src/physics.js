@@ -44,19 +44,23 @@ export class PhysicsWorld {
     this.ground = null;
 
     // Bottle silhouette (px), shared with the renderer so physics and art
-    // stay aligned: base 50 wide, 100 tall ≈ a real 500ml bottle
-    // (65mm diameter, 210mm tall ≈ 31% width ratio). The renderer derives
-    // capW/neckW from these same w/h values — see drawCleanBottle().
-    this.bottleWidth = 50;
-    this.bottleHeight = 100;
-    // Real 500ml PET bottle weights: empty ≈ 19–25g, full ≈ 520g (500ml
-    // water ≈ 500g + bottle). bottleMassG reports the current fill's weight.
-    this.bottleEmptyMassG = 22;   // grams
-    this.bottleFullMassG = 522;   // grams
+    // stay aligned. The active skin sets these via setShape() (see SHAPES);
+    // these are the defaults for the classic 500ml bottle (65mm diameter,
+    // 210mm tall ≈ 31% width ratio) and are refreshed on every spawn.
+    this.shapeId = 'bottle';
+    this.shapeRestitution = 0.01;
+    this.shapeFillable = true;
+    this.shapeFixedFill = null;
+    Object.assign(this, PhysicsWorld.SHAPES.bottle, {
+      bottleWidth: PhysicsWorld.SHAPES.bottle.w,
+      bottleHeight: PhysicsWorld.SHAPES.bottle.h,
+      neckWidth: PhysicsWorld.SHAPES.bottle.neckW,
+      capHeight: PhysicsWorld.SHAPES.bottle.capH,
+      neckHeight: PhysicsWorld.SHAPES.bottle.neckH,
+      bottleEmptyMassG: PhysicsWorld.SHAPES.bottle.emptyG,
+      bottleFullMassG: PhysicsWorld.SHAPES.bottle.fullG,
+    });
     this.bottleMassG = this.bottleEmptyMassG;
-    this.capHeight = 12;
-    this.neckWidth = 24;
-    this.neckHeight = 10;
     this.shoulderWidth = 34;
 
     // Honest tip-over window. A 50px-wide base standing 100px tall tips past
@@ -119,6 +123,60 @@ export class PhysicsWorld {
       ...(this.leftBumper ? [this.leftBumper] : []),
       ...(this.rightBumper ? [this.rightBumper] : []),
     ]);
+  }
+
+  // ── Container Shape Profiles ─────────────────────────────────────────────
+  //
+  // Each skin is a REAL container with its own silhouette and mass curve,
+  // shared with the renderer so physics and art stay aligned.
+  //  h/w: pixel silhouette; neck/cap: top region widths in px
+  //  emptyG/fullG: real-world weights in grams (reported as bottleMassG)
+  //  restitution: surface bounciness of the material
+  //  fillable: containers you cannot half-fill (sealed champagne) ignore
+  //  the water-fill selector; weight is fixed.
+  static SHAPES = {
+    bottle: {
+      w: 50, h: 100, neckW: 24, capH: 12, neckH: 10,
+      emptyG: 22, fullG: 522, restitution: 0.01, fillable: true,
+    },
+    wine: {
+      w: 46, h: 110, neckW: 15, capH: 7, neckH: 30,
+      emptyG: 400, fullG: 1200, restitution: 0.02, fillable: true,
+    },
+    champagne: {
+      w: 52, h: 115, neckW: 17, capH: 9, neckH: 32,
+      emptyG: 900, fullG: 1250, restitution: 0.02, fillable: false, fixedFill: 1.0,
+    },
+    feeder: {
+      w: 46, h: 92, neckW: 30, capH: 9, neckH: 6,
+      emptyG: 40, fullG: 440, restitution: 0.04, fillable: true,
+    },
+    tumbler: {
+      w: 58, h: 85, neckW: 52, capH: 3, neckH: 4,
+      emptyG: 350, fullG: 950, restitution: 0.005, fillable: true,
+    },
+  };
+
+  /**
+   * Switch the container shape. Rebuilds the bottle and re-reads
+   * silhouette + weight parameters so physics and renderer agree.
+   */
+  setShape(shapeId) {
+    const s = PhysicsWorld.SHAPES[shapeId] || PhysicsWorld.SHAPES.bottle;
+    this.shapeId = shapeId;
+    this.bottleWidth = s.w;
+    this.bottleHeight = s.h;
+    this.neckWidth = s.neckW;
+    this.capHeight = s.capH;
+    this.neckHeight = s.neckH;
+    this.bottleEmptyMassG = s.emptyG;
+    this.bottleFullMassG = s.fullG;
+    this.shapeRestitution = s.restitution;
+    this.shapeFillable = s.fillable;
+    this.shapeFixedFill = s.fixedFill ?? null;
+    // Sealed containers override the water-fill selector.
+    this.liquidFill = this.shapeFixedFill ?? this.liquidFill;
+    this.spawnBottle();
   }
 
   createSingleTable() {
@@ -231,6 +289,18 @@ export class PhysicsWorld {
   spawnBottle() {
     if (this.bottle) World.remove(this.engine.world, this.bottle);
 
+    // Refresh silhouette + weight parameters so a mid-session shape switch
+    // (or a re-render of the picker) always agrees with the physics body.
+    const s = PhysicsWorld.SHAPES[this.shapeId] || PhysicsWorld.SHAPES.bottle;
+    this.bottleWidth = s.w;
+    this.bottleHeight = s.h;
+    this.neckWidth = s.neckW;
+    this.capHeight = s.capH;
+    this.neckHeight = s.neckH;
+    this.bottleEmptyMassG = s.emptyG;
+    this.bottleFullMassG = s.fullG;
+    if (this.shapeFixedFill != null) this.liquidFill = this.shapeFixedFill;
+
     const tablePos = this.table.position;
     const tableWidth = this.table.customData.width;
     const platformHeight = this.table.customData.height;
@@ -242,10 +312,10 @@ export class PhysicsWorld {
     // half-full = low CoM sweet spot (real-world easiest)
     // full = heavy, dead bounce (needs committed throws)
     const baseDensity = 0.0011 + this.liquidFill * 0.0031;
-    // Real bottles clatter and skid on wood — they barely bounce at all.
+    // Real containers clatter and skid on wood — they barely bounce at all.
     // Near-zero restitution is what lets post-touchdown rocking decay to
     // genuine rest instead of sustaining endless micro-bounces.
-    const restitution = 0.01;
+    const restitution = this.shapeRestitution ?? 0.01;
 
     this.bottle = this._buildBottleBody(baseDensity, restitution);
     // Centre of mass already sits low via per-part densities; a small extra
@@ -411,7 +481,8 @@ export class PhysicsWorld {
             const tilt = norm > Math.PI ? twoPi - norm : norm;
             const uprightish = tilt < this.uprightTolerance * 1.05;
             const headstandish = Math.abs(norm - Math.PI) < this.uprightTolerance * 1.2;
-            const onSide = tilt > 1.6; // ~92°+ → lying on its side
+            const onSide = tilt > 1.5; // ~86°+ → lying on its side (rim
+            // chamfers let a real container settle a few degrees short of 90)
             if (uprightish || headstandish || onSide) {
               this._verdictIssued = true;
               this.evaluateLanding();

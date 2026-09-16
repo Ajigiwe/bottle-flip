@@ -123,6 +123,59 @@ function flightMatchedSpin(physics, vy) {
   check('ended on its side, not standing', onSide);
 }
 
+// ── Test 5: container skins — real shapes, real weights, honest flips ─────
+// Each skin is a physical container (see PhysicsWorld.SHAPES): switching
+// must change the silhouette, the reported weight AND stay landable.
+function flightMatchedFor(p, vy) {
+  return flightMatchedSpin(p, vy);
+}
+{
+  const dims = {
+    bottle:    { w: 50, h: 100 },
+    wine:      { w: 46, h: 110 },
+    champagne: { w: 52, h: 115 },
+    feeder:    { w: 46, h: 92 },
+    tumbler:   { w: 58, h: 85 },
+  };
+  for (const [shape, d] of Object.entries(dims)) {
+    const p = new PhysicsWorld(420, 760);
+    p.windForce = 0;
+    p.setShape(shape);
+    check(`${shape}: silhouette dims applied`,
+      p.bottleWidth === d.w && p.bottleHeight === d.h,
+      `got ${p.bottleWidth}x${p.bottleHeight}`);
+    check(`${shape}: weight curve applied`,
+      p.bottleEmptyMassG > 0 && p.bottleFullMassG > p.bottleEmptyMassG,
+      `${p.bottleEmptyMassG}g → ${p.bottleFullMassG}g`);
+  }
+
+  // Sealed champagne ignores the fill selector — it is always full.
+  {
+    const p = new PhysicsWorld(420, 760);
+    p.setShape('champagne');
+    p.setLiquidFill(0.25);
+    check('champagne is sealed (fill stays 1.0)', p.liquidFill === 1.0, `fill=${p.liquidFill}`);
+  }
+
+  // A flight-matched toss at half fill lands upright on every landable
+  // shape. Each container has its own landable arc energy (like real life:
+  // a tumbler flung hard topples, a gentle lob plants it).
+  for (const [shape, vy] of [['bottle', -17.5], ['wine', -16.5], ['feeder', -13.1], ['tumbler', -12.4]]) {
+    const p = new PhysicsWorld(420, 760);
+    p.windForce = 0;
+    p.setShape(shape);
+    p.liquidFill = 0.5;
+    p.spawnBottle();
+    p.throwBottle(0.3, vy, flightMatchedFor(p, vy) * 0.97);
+    let landed = null;
+    let frames = 0;
+    p.onLandingCallback = (r) => { landed = r; };
+    while (!landed && frames < 900) { p.update(1000 / 60); frames++; }
+    check(`${shape}: matched toss lands upright`, !!landed && landed.isUpright === true,
+      landed ? `reason=${landed.reason}` : 'no callback');
+  }
+}
+
 console.log(`\n${results.filter(r => r.pass).length}/${results.length} checks passed`);
 const failed = results.filter(r => !r.pass);
 if (failed.length) {

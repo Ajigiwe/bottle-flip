@@ -17,6 +17,8 @@ class BottleFlipGame {
     this.streak = 0;
     this.lives = 3;
     this.bestScore = parseInt(localStorage.getItem('bottle_flip_best') || '0', 10);
+    // Highest difficulty ever beaten (persists) — gates cosmetic unlocks.
+    this.bestDifficulty = parseInt(localStorage.getItem('bf_best_difficulty') || '0', 10);
     this.gameActive = false;
     this.gameMode = GameMode.LIVES;
 
@@ -360,6 +362,10 @@ class BottleFlipGame {
 
   initGame() {
     this.physics = new PhysicsWorld(window.innerWidth, window.innerHeight);
+    // Start from the saved skin; the active skin IS the container — physics
+    // silhouette, weight and restitution all come from its shape profile.
+    const skin = this.skinSystem.getActive(this.bestScore, this.bestDifficulty);
+    this.physics.setShape(skin.shape);
 
     this.motionController = new MotionController(
       this.physics, soundManager, (type) => this.handleThrowTriggered(type)
@@ -409,11 +415,17 @@ class BottleFlipGame {
       const points = basePoints * multiplier;
       this.score += points;
 
-      if (this.score > this.bestScore) {
+      const newBest = this.score > this.bestScore;
+      if (newBest) {
         this.bestScore = this.score;
         localStorage.setItem('bottle_flip_best', this.bestScore.toString());
         this.bestVal.textContent = this.bestScore;
         if (this.homeBestVal) this.homeBestVal.textContent = this.bestScore;
+      }
+      // Record the highest difficulty beaten for skin unlocks.
+      if (this.physics.difficulty > this.bestDifficulty) {
+        this.bestDifficulty = this.physics.difficulty;
+        localStorage.setItem('bf_best_difficulty', this.bestDifficulty.toString());
       }
 
       this.scoreVal.textContent = this.score;
@@ -464,7 +476,9 @@ class BottleFlipGame {
       this.renderer.triggerLandingParticles(bottlePos.x, bottlePos.y, false, 0);
 
       this.showToast('❌ MISSED', 'Keep trying!', true);
-      setTimeout(() => this.resetBottle(), 1200);
+      // Let the failed pose sit on screen a beat longer than a success so
+      // the player can see HOW it fell before the reset.
+      setTimeout(() => this.resetBottle(), 1900);
     }
   }
 
@@ -569,14 +583,17 @@ class BottleFlipGame {
     const grid = document.getElementById('skins-grid');
     if (!grid) return;
     grid.innerHTML = SKINS.map(s => {
-      const isUnlocked = this.bestScore >= s.unlockScore;
+      const isUnlocked = this.skinSystem.isUnlocked(s, this.bestScore, this.bestDifficulty);
       const isActive = this.skinSystem.currentSkinId === s.id;
+      const lockText = s.unlockDifficulty > 0 && !(this.bestDifficulty >= s.unlockDifficulty)
+        ? `Beat difficulty D${s.unlockDifficulty} to unlock`
+        : s.desc;
       return `
         <button class="skin-card ${isActive ? 'active' : ''} ${!isUnlocked ? 'locked' : ''}"
                 data-skin="${s.id}" ${!isUnlocked ? 'disabled' : ''}>
           <span class="skin-icon">${s.icon}</span>
           <span class="skin-name">${s.name}</span>
-          <span class="skin-desc">${isUnlocked ? (isActive ? '✓ Active' : 'Tap to use') : s.desc}</span>
+          <span class="skin-desc">${isUnlocked ? (isActive ? '✓ Active' : lockText) : `🔒 ${lockText}`}</span>
         </button>
       `;
     }).join('');
@@ -586,6 +603,10 @@ class BottleFlipGame {
       if (!btn) return;
       soundManager.playClick();
       this.skinSystem.select(btn.dataset.skin);
+      // The selected skin IS the container: rebuild the physics body with
+      // the new shape immediately, even mid-session.
+      const skin = SKINS.find(s => s.id === btn.dataset.skin);
+      if (skin && this.physics) this.physics.setShape(skin.shape);
       this._renderSkinPicker(); // re-render to update active state
     });
   }

@@ -330,6 +330,7 @@ export class GameRenderer {
     const angle = bottle.angle;
     const w = this.physics.bottleWidth || 46;
     const h = this.physics.bottleHeight || 100;
+    const shape = this.physics.shapeId || 'bottle';
 
     ctx.save();
     ctx.translate(cx, cy);
@@ -348,12 +349,14 @@ export class GameRenderer {
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    const capW = Math.round(w * 0.42), capH = 12, neckW = Math.round(w * 0.36), neckH = 10;
+    const capW = Math.round(w * 0.42), capH = this.physics.capHeight || 12;
+    const neckW = this.physics.neckWidth || Math.round(w * 0.36), neckH = this.physics.neckHeight || 10;
     const shoulderY = -h / 2 + capH + neckH;
     const baseY = h / 2;
 
     const fill = this.physics.liquidFill;
-    if (fill > 0.02) {
+    const liquidVisible = fill > 0.02 && shape !== 'tumbler';
+    if (liquidVisible) {
       const liquidHeight = (h - (capH + neckH + 12)) * fill;
       const liquidTopY = baseY - 6 - liquidHeight;
 
@@ -390,18 +393,20 @@ export class GameRenderer {
       ctx.lineWidth = 1.2;
       ctx.stroke();
 
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      this.bubbles.forEach((b) => {
-        b.y -= b.speed;
-        if (b.y < -liquidHeight / 2) b.y = liquidHeight / 2;
-        const bx = b.x + Math.sin(b.offset + Date.now() * 0.002) * 2;
-        const by = baseY - 12 - (b.y + liquidHeight / 2);
-        if (by > liquidTopY + 4 && by < baseY - 4) {
-          ctx.beginPath();
-          ctx.arc(bx, by, b.r, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      });
+      if (fill < 0.95) {
+        ctx.fillStyle = 'rgba(255,255,255,0.45)';
+        this.bubbles.forEach((b) => {
+          b.y -= b.speed;
+          if (b.y < -liquidHeight / 2) b.y = liquidHeight / 2;
+          const bx = b.x + Math.sin(b.offset + Date.now() * 0.002) * 2;
+          const by = baseY - 12 - (b.y + liquidHeight / 2);
+          if (by > liquidTopY + 4 && by < baseY - 4) {
+            ctx.beginPath();
+            ctx.arc(bx, by, b.r, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        });
+      }
       ctx.restore();
     }
 
@@ -432,6 +437,12 @@ export class GameRenderer {
     ctx.fill();
     ctx.stroke();
 
+    // Opaque body fill (colored glass / steel) drawn under the label
+    if (skin?.bodyFill) {
+      ctx.fillStyle = skin.bodyFill;
+      ctx.fill();
+    }
+
     // Label
     const labelH = 20, labelY = 0;
     ctx.save();
@@ -450,8 +461,8 @@ export class GameRenderer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     // Manual letter-spacing (non-standard ctx.letterSpacing avoided)
-    const word = 'PURE';
-    const gap = 3.5;
+    const word = skin?.labelWord || 'PURE';
+    const gap = word.length > 4 ? 2.2 : 3.5;
     const totalW = (word.length - 1) * gap;
     let lx = -totalW / 2;
     for (const ch of word) { ctx.fillText(ch, lx, labelY); lx += gap; }
@@ -464,19 +475,85 @@ export class GameRenderer {
     ctx.lineWidth = 1;
     ctx.strokeRect(-neckW / 2 + 1, -h / 2 + capH, neckW - 2, neckH);
 
-    // Cap
+    // Cap / closure — per-shape character
     const cap = skin?.capGrad || ['#1e293b', '#334155', '#0f172a'];
-    const capGrad = ctx.createLinearGradient(-capW / 2, 0, capW / 2, 0);
-    capGrad.addColorStop(0, cap[0]);
-    capGrad.addColorStop(0.5, cap[1]);
-    capGrad.addColorStop(1, cap[2]);
-    ctx.fillStyle = capGrad;
-    ctx.beginPath();
-    ctx.roundRect(-capW / 2, -h / 2, capW, capH, 3);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(-capW / 2, -h / 2, capW, capH);
+    if (shape === 'wine' || shape === 'champagne') {
+      // Wax capsule / foil neck sleeve running the full neck
+      const capGrad = ctx.createLinearGradient(-capW / 2, 0, capW / 2, 0);
+      capGrad.addColorStop(0, cap[0]);
+      capGrad.addColorStop(0.5, cap[1]);
+      capGrad.addColorStop(1, cap[2]);
+      ctx.fillStyle = capGrad;
+      ctx.beginPath();
+      ctx.roundRect(-capW / 2, -h / 2, capW, capH + neckH + 6, [4, 4, 0, 0]);
+      ctx.fill();
+      if (shape === 'champagne') {
+        // Wire cage over the cork
+        ctx.strokeStyle = 'rgba(220,220,220,0.85)';
+        ctx.lineWidth = 1.1;
+        const top = -h / 2 + capH;
+        for (let i = 0; i < 3; i++) {
+          const yy = top + 4 + i * 6;
+          ctx.beginPath();
+          ctx.ellipse(0, yy, capW / 2 - 1, 2.2, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.beginPath();
+        ctx.moveTo(-capW / 2 + 1, top + 16);
+        ctx.lineTo(capW / 2 - 1, top + 16);
+        ctx.stroke();
+      }
+    } else if (shape === 'feeder') {
+      // Rubber teat (dome) + screw ring below it
+      const topY = -h / 2;
+      ctx.fillStyle = capGrad;  // ring
+      ctx.beginPath();
+      ctx.roundRect(-capW / 2, topY + 5, capW, capH + 2, 3);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(251,207,232,0.92)';
+      ctx.beginPath();
+      ctx.moveTo(-capW / 2 + 3, topY + 6);
+      ctx.quadraticCurveTo(0, topY - 8, capW / 2 - 3, topY + 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(244,114,182,0.6)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    } else if (shape === 'tumbler') {
+      // Lid + rim line
+      const capGrad2 = ctx.createLinearGradient(-capW / 2, 0, capW / 2, 0);
+      capGrad2.addColorStop(0, cap[0]);
+      capGrad2.addColorStop(0.5, cap[1]);
+      capGrad2.addColorStop(1, cap[2]);
+      ctx.fillStyle = capGrad2;
+      ctx.beginPath();
+      ctx.roundRect(-capW / 2, -h / 2, capW, capH + 2, 3);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-capW / 2, -h / 2, capW, capH + 2);
+      // Handle: rounded loop off the right side
+      ctx.strokeStyle = 'rgba(203,213,225,0.9)';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(w / 2 - 1, -h / 2 + capH + 14);
+      ctx.quadraticCurveTo(w / 2 + 12, -h / 2 + capH + 14, w / 2 + 12, 0);
+      ctx.quadraticCurveTo(w / 2 + 12, h / 2 - 16, w / 2 - 1, h / 2 - 16);
+      ctx.stroke();
+    } else {
+      // Classic screw cap
+      const capGrad3 = ctx.createLinearGradient(-capW / 2, 0, capW / 2, 0);
+      capGrad3.addColorStop(0, cap[0]);
+      capGrad3.addColorStop(0.5, cap[1]);
+      capGrad3.addColorStop(1, cap[2]);
+      ctx.fillStyle = capGrad3;
+      ctx.beginPath();
+      ctx.roundRect(-capW / 2, -h / 2, capW, capH, 3);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-capW / 2, -h / 2, capW, capH);
+    }
 
     // Highlight streak
     ctx.strokeStyle = 'rgba(255,255,255,0.65)';

@@ -18,7 +18,7 @@ A physics-based Bottle Flip game for mobile & desktop, built with **Matter.js**,
 ### Progression & Meta
 - **Achievements** — 9 unlockable badges (First Flip, Sharpshooter, Hat Trick, On Fire, Point Guard, High Roller, Sniper, Speed Demon, Cap Master) with toast notifications.
 - **Leaderboard** — local top-5 scores, tracked per game mode.
-- **Skins** — 4 bottle skins (Classic, Neon Rush, Gold Rush, Inferno) unlocked by your all-time best score (0 / 200 / 500 / 1000 pts).
+- **Skins** — 5 containers, each a real physics object with its own silhouette, weight and material feel: 💧 Classic Water (default), 🍷 Bordeaux Red, 🍾 Champagne (sealed — always full), 🍼 Baby Bottle and 🥤 Steel Tumbler. Unlocked by beating higher difficulties (D1–D4), not by score.
 
 ### Presentation
 - **Visuals** — stylized 3D-ish bottle rendering, studio lighting, wooden table with perspective legs, sloshing liquid, particle effects (pooled, 200 particles), confetti for cap landings, spin trail, power meter.
@@ -81,7 +81,7 @@ src/
   effects.js          EffectsEngine: particle pool, confetti, ripples
   achievements.js     Badge definitions + persistent unlock state
   leaderboard.js      Local top-5 score storage
-  skinSystem.js       Skin catalog + unlock logic
+  skinSystem.js       Skin catalog (visuals + physics shape profiles) + unlock logic
   eventBus.js         Tiny pub/sub event bus
   gameState.js        Frozen enums for game/physics states
 public/
