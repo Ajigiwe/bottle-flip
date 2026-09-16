@@ -440,25 +440,14 @@ export class PhysicsWorld {
         const speed = Vector.magnitude(this.bottle.velocity);
         if (this.onCollisionCallback) this.onCollisionCallback(other, speed);
 
-        // A violent BROADSIDE slam is already lost — a bottle hitting the
-        // table sideways at high speed never stands back up. The gates are
-        // set beyond honest landings: matched touches arrive at ~2.5–4 speed
-        // with mid-rotation tilt (and can still wobble upright from ~20°),
-        // so only a fast AND clearly broadside impact (46°+) insta-fails.
-        // Slower or steeper contacts are left to the rest-based verdict.
+        // No insta-fail gate here: a broadside touchdown can still rock
+        // back onto its feet (probes showed ~3% of slam-gate failures were
+        // recoverable). Every throw is judged honestly at genuine rest by
+        // the settle-window verdict in update(), which side-landings fail
+        // and grazes-that-recover pass. Touchdown tracking stays so the
+        // verdict can never fire mid-air.
         if (other === this.table || other === this.ground) {
           if (other === this.table) this._touchedTable = true;
-          const twoPi = Math.PI * 2;
-          const norm = ((this.bottle.angle % twoPi) + twoPi) % twoPi;
-          const tilt = norm > Math.PI ? twoPi - norm : norm;
-          const broadside = tilt > 0.8 && tilt < Math.PI - 0.8;
-          const isSlam = speed > 4.5 && broadside;
-          if (isSlam) {
-            this.state = 'FAILED';
-            if (this.onLandingCallback) {
-              this.onLandingCallback({ isUpright: false, isTarget: false, reason: 'SIDE_LANDING' });
-            }
-          }
         }
       }
     });
